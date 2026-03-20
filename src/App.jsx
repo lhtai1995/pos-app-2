@@ -238,14 +238,26 @@ export default function App() {
       total: currentOrder.reduce((s, i) => s + i.totalPrice, 0),
       timestamp: new Date().toISOString(),
     };
-    // Cập nhật UI ngay lập tức
     setOrders((prev) => [newOrder, ...prev]);
     saveToStorage(STORAGE_KEYS.ORDERS, [newOrder, ...orders]);
     setCurrentOrder([]);
-    // Sync lên Google Sheets
     try {
       setCloudStatus('syncing');
       await gsPost('addOrder', newOrder);
+      setCloudStatus('ok');
+    } catch {
+      setCloudStatus('error');
+    }
+  };
+
+  const deleteOrder = async (orderId) => {
+    if (!window.confirm('Xóa giao dịch này?')) return;
+    const updated = orders.filter((o) => o.id !== orderId);
+    setOrders(updated);
+    saveToStorage(STORAGE_KEYS.ORDERS, updated);
+    try {
+      setCloudStatus('syncing');
+      await gsPost('deleteOrder', { id: orderId });
       setCloudStatus('ok');
     } catch {
       setCloudStatus('error');
@@ -584,7 +596,16 @@ export default function App() {
                       minute: '2-digit',
                     })}
                   </span>
-                  <span className="tx-total">{formatPrice(order.total)}</span>
+                  <div className="tx-header-right">
+                    <span className="tx-total">{formatPrice(order.total)}</span>
+                    <button
+                      className="tx-delete-btn"
+                      onClick={() => deleteOrder(order.id)}
+                      title="Xóa giao dịch"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
                 </div>
                 <div className="tx-items">
                   {order.items.map((item, idx) => (

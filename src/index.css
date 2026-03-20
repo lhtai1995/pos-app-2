@@ -510,6 +510,30 @@ body {
   border-bottom: 1px dashed var(--border);
 }
 
+.tx-header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tx-delete-btn {
+  background: none;
+  border: none;
+  color: var(--text-light);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  transition: color 0.15s, background 0.15s;
+}
+
+.tx-delete-btn:hover,
+.tx-delete-btn:active {
+  color: var(--danger);
+  background: var(--danger-light);
+}
+
 .tx-time {
   color: var(--text-muted);
   font-size: 0.82rem;

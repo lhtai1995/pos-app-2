@@ -28,6 +28,7 @@ function doPost(e) {
   try {
     let result;
     if (action === 'addOrder') result = addOrder(data.payload);
+    else if (action === 'deleteOrder') result = deleteOrder(data.payload);
     else if (action === 'addMenuItem') result = addMenuItem(data.payload);
     else if (action === 'updateMenuItem') result = updateMenuItem(data.payload);
     else if (action === 'deleteMenuItem') result = deleteMenuItem(data.payload);
@@ -215,7 +216,6 @@ function getOrders() {
 
 function addOrder(payload) {
   const sheet = getSheet('Orders');
-  // Khởi tạo header nếu chưa có
   if (sheet.getLastRow() === 0) {
     sheet.appendRow(['Order ID', 'Timestamp', 'Items (JSON)', 'Total', 'Note']);
   }
@@ -227,4 +227,16 @@ function addOrder(payload) {
     payload.note || ''
   ]);
   return { success: true };
+}
+
+function deleteOrder(payload) {
+  const sheet = getSheet('Orders');
+  const data = sheet.getDataRange().getValues();
+  for (let i = 1; i < data.length; i++) {
+    if (data[i][0] === payload.id) {
+      sheet.deleteRow(i + 1);
+      return { success: true };
+    }
+  }
+  return { error: 'Order not found' };
 }
