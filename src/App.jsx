@@ -1,6 +1,24 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import Papa from 'papaparse';
-import { ShoppingCart, BarChart3, Home, Settings, Plus, Trash2, ChevronDown, ChevronUp, X, Edit2, Check, Search } from 'lucide-react';
+import { BarChart3, Home, Settings, Plus, Trash2, ChevronDown, ChevronUp, X, Edit2, Check, Search, Cloud, CloudOff, RefreshCw } from 'lucide-react';
+
+// ──────────────────────────────────────────────
+// GOOGLE SHEETS API
+// ──────────────────────────────────────────────
+const GS_URL = 'https://script.google.com/macros/s/AKfycbzigqPwXPuR1j98CeX8YGrRZpPApXYmGtxotIdsWJGIbB38Gf0ATE0FPcufTElS-Fpo0A/exec';
+
+const gsGet = async (action) => {
+  const res = await fetch(`${GS_URL}?action=${action}`);
+  return res.json();
+};
+
+const gsPost = async (action, payload) => {
+  const res = await fetch(GS_URL, {
+    method: 'POST',
+    body: JSON.stringify({ action, payload }),
+  });
+  return res.json();
+};
 
 // ──────────────────────────────────────────────
 // CONSTANTS
@@ -9,6 +27,7 @@ const STORAGE_KEYS = {
   MENU: 'dol_menu_items',
   TOPPINGS: 'dol_toppings',
   ORDERS: 'dol_orders',
+  SYNCED: 'dol_gs_synced', // flag đã sync lên Sheet chưa
 };
 
 // ──────────────────────────────────────────────
@@ -58,6 +77,7 @@ export default function App() {
   const [toppings, setToppings] = useState([]);
   const [orders, setOrders] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [cloudStatus, setCloudStatus] = useState('idle'); // idle | syncing | ok | error
 
   // Order states
   const [currentOrder, setCurrentOrder] = useState([]);
@@ -67,9 +87,9 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState('');
 
   // Menu management states
-  const [menuView, setMenuView] = useState('list'); // list | addItem | addTopping | editItem | editTopping
+  const [menuView, setMenuView] = useState('list');
   const [editingItem, setEditingItem] = useState(null);
-  const [menuTab, setMenuTab] = useState('items'); // items | toppings
+  const [menuTab, setMenuTab] = useState('items');
 
   // Form state
   const [form, setForm] = useState({ category: '', name: '', price: '' });
@@ -79,51 +99,97 @@ export default function App() {
   // ── LOAD DATA ──
   useEffect(() => {
     const initData = async () => {
-      // Load orders from storage
-      const savedOrders = loadFromStorage(STORAGE_KEYS.ORDERS);
-      if (savedOrders) setOrders(savedOrders);
+      setIsLoading(true);
+      setCloudStatus('syncing');
 
-      // Try load menu from storage first
-      const savedMenu = loadFromStorage(STORAGE_KEYS.MENU);
-      const savedToppings = loadFromStorage(STORAGE_KEYS.TOPPINGS);
-
-      if (savedMenu && savedMenu.length > 0) {
-        setMenuItems(savedMenu);
-      } else {
-        try {
-          const rows = await fetchAndParseCSV('/Menu.csv');
-          const parsed = rows
-            .filter((r) => r['Tên Món'] && r['Danh mục'])
-            .map((r) => ({
-              id: generateId(),
-              category: r['Danh mục'].trim(),
-              name: r['Tên Món'].trim(),
-              price: parseInt(r['Giá'] || 0, 10),
-            }));
+      try {
+        // Load Menu từ Google Sheets
+        const gsMenu = await gsGet('getMenu');
+        if (gsMenu && gsMenu.length > 0) {
+          // Sheet đã có data → dùng từ Sheet
+          const parsed = gsMenu.map((r) => ({
+            id: generateId(),
+            category: r.category,
+            name: r.name,
+            price: Number(r.price),
+          }));
           setMenuItems(parsed);
           saveToStorage(STORAGE_KEYS.MENU, parsed);
-        } catch (e) {
-          console.error('Menu load failed', e);
-        }
-      }
+        } else {
+          // Sheet trống → sync từ localStorage hoặc CSV lên Sheet
+          const savedMenu = loadFromStorage(STORAGE_KEYS.MENU);
+          let menuToSync = savedMenu;
 
-      if (savedToppings && savedToppings.length > 0) {
-        setToppings(savedToppings);
-      } else {
-        try {
-          const rows = await fetchAndParseCSV('/Toppings.csv');
-          const parsed = rows
-            .filter((r) => r['Tên Topping'])
-            .map((r) => ({
-              id: generateId(),
-              name: r['Tên Topping'].trim(),
-              price: parseInt(r['Giá'] || 0, 10),
-            }));
+          if (!menuToSync || menuToSync.length === 0) {
+            // Load từ CSV
+            const rows = await fetchAndParseCSV('/Menu.csv');
+            menuToSync = rows
+              .filter((r) => r['Tên Món'] && r['Danh mục'])
+              .map((r) => ({
+                id: generateId(),
+                category: r['Danh mục'].trim(),
+                name: r['Tên Món'].trim(),
+                price: parseInt(r['Giá'] || 0, 10),
+              }));
+          }
+
+          setMenuItems(menuToSync);
+          saveToStorage(STORAGE_KEYS.MENU, menuToSync);
+          // Sync lên Sheet
+          await gsPost('syncMenu', menuToSync);
+        }
+
+        // Load Toppings từ Google Sheets
+        const gsToppings = await gsGet('getToppings');
+        if (gsToppings && gsToppings.length > 0) {
+          const parsed = gsToppings.map((r) => ({
+            id: generateId(),
+            name: r.name,
+            price: Number(r.price),
+          }));
           setToppings(parsed);
           saveToStorage(STORAGE_KEYS.TOPPINGS, parsed);
-        } catch (e) {
-          console.error('Toppings load failed', e);
+        } else {
+          const savedToppings = loadFromStorage(STORAGE_KEYS.TOPPINGS);
+          let toppingsToSync = savedToppings;
+
+          if (!toppingsToSync || toppingsToSync.length === 0) {
+            const rows = await fetchAndParseCSV('/Toppings.csv');
+            toppingsToSync = rows
+              .filter((r) => r['Tên Topping'])
+              .map((r) => ({
+                id: generateId(),
+                name: r['Tên Topping'].trim(),
+                price: parseInt(r['Giá'] || 0, 10),
+              }));
+          }
+
+          setToppings(toppingsToSync);
+          saveToStorage(STORAGE_KEYS.TOPPINGS, toppingsToSync);
+          await gsPost('syncToppings', toppingsToSync);
         }
+
+        // Load Orders từ Google Sheets
+        const gsOrders = await gsGet('getOrders');
+        if (gsOrders && gsOrders.length > 0) {
+          setOrders(gsOrders);
+          saveToStorage(STORAGE_KEYS.ORDERS, gsOrders);
+        } else {
+          const savedOrders = loadFromStorage(STORAGE_KEYS.ORDERS);
+          if (savedOrders) setOrders(savedOrders);
+        }
+
+        setCloudStatus('ok');
+      } catch (err) {
+        console.error('Google Sheets load failed, using local cache', err);
+        setCloudStatus('error');
+        // Fallback: dùng localStorage
+        const savedMenu = loadFromStorage(STORAGE_KEYS.MENU);
+        const savedToppings = loadFromStorage(STORAGE_KEYS.TOPPINGS);
+        const savedOrders = loadFromStorage(STORAGE_KEYS.ORDERS);
+        if (savedMenu) setMenuItems(savedMenu);
+        if (savedToppings) setToppings(savedToppings);
+        if (savedOrders) setOrders(savedOrders);
       }
 
       setIsLoading(false);
@@ -131,19 +197,6 @@ export default function App() {
 
     initData();
   }, []);
-
-  // Persist menu & orders changes
-  useEffect(() => {
-    if (!isLoading) saveToStorage(STORAGE_KEYS.MENU, menuItems);
-  }, [menuItems, isLoading]);
-
-  useEffect(() => {
-    if (!isLoading) saveToStorage(STORAGE_KEYS.TOPPINGS, toppings);
-  }, [toppings, isLoading]);
-
-  useEffect(() => {
-    saveToStorage(STORAGE_KEYS.ORDERS, orders);
-  }, [orders]);
 
   // ── ORDER LOGIC ──
   const handleAddItemToCurrentOrder = (item) => {
@@ -177,7 +230,7 @@ export default function App() {
     setCurrentOrder((prev) => prev.filter((i) => i.cartId !== cartId));
   };
 
-  const completeOrder = () => {
+  const completeOrder = async () => {
     if (!currentOrder.length) return;
     const newOrder = {
       id: generateId(),
@@ -185,33 +238,61 @@ export default function App() {
       total: currentOrder.reduce((s, i) => s + i.totalPrice, 0),
       timestamp: new Date().toISOString(),
     };
+    // Cập nhật UI ngay lập tức
     setOrders((prev) => [newOrder, ...prev]);
+    saveToStorage(STORAGE_KEYS.ORDERS, [newOrder, ...orders]);
     setCurrentOrder([]);
+    // Sync lên Google Sheets
+    try {
+      setCloudStatus('syncing');
+      await gsPost('addOrder', newOrder);
+      setCloudStatus('ok');
+    } catch {
+      setCloudStatus('error');
+    }
   };
 
   // ── MENU CRUD ──
-  const saveMenuItem = () => {
+  const saveMenuItem = async () => {
     if (!form.name.trim() || !form.category.trim() || !form.price) return;
     const price = parseInt(form.price, 10);
-    if (editingItem) {
-      setMenuItems((prev) =>
-        prev.map((i) =>
-          i.id === editingItem.id ? { ...i, ...form, price } : i
-        )
-      );
-    } else {
-      setMenuItems((prev) => [
-        ...prev,
-        { id: generateId(), category: form.category.trim(), name: form.name.trim(), price },
-      ]);
+    try {
+      setCloudStatus('syncing');
+      if (editingItem) {
+        setMenuItems((prev) =>
+          prev.map((i) => i.id === editingItem.id ? { ...i, category: form.category.trim(), name: form.name.trim(), price } : i)
+        );
+        await gsPost('updateMenuItem', {
+          originalName: editingItem.name,
+          originalCategory: editingItem.category,
+          category: form.category.trim(),
+          name: form.name.trim(),
+          price,
+        });
+      } else {
+        const newItem = { id: generateId(), category: form.category.trim(), name: form.name.trim(), price };
+        setMenuItems((prev) => [...prev, newItem]);
+        await gsPost('addMenuItem', newItem);
+      }
+      setCloudStatus('ok');
+    } catch {
+      setCloudStatus('error');
     }
     setForm({ category: '', name: '', price: '' });
     setEditingItem(null);
     setMenuView('list');
   };
 
-  const deleteMenuItem = (id) => {
+  const deleteMenuItem = async (id) => {
+    const item = menuItems.find((i) => i.id === id);
     setMenuItems((prev) => prev.filter((i) => i.id !== id));
+    try {
+      setCloudStatus('syncing');
+      await gsPost('deleteMenuItem', { name: item.name, category: item.category });
+      setCloudStatus('ok');
+    } catch {
+      setCloudStatus('error');
+    }
   };
 
   const startEditItem = (item) => {
@@ -220,28 +301,40 @@ export default function App() {
     setMenuView('editItem');
   };
 
-  const saveTopping = () => {
+  const saveTopping = async () => {
     if (!toppingForm.name.trim() || !toppingForm.price) return;
     const price = parseInt(toppingForm.price, 10);
-    if (editingItem) {
-      setToppings((prev) =>
-        prev.map((t) =>
-          t.id === editingItem.id ? { ...t, ...toppingForm, price } : t
-        )
-      );
-    } else {
-      setToppings((prev) => [
-        ...prev,
-        { id: generateId(), name: toppingForm.name.trim(), price },
-      ]);
+    try {
+      setCloudStatus('syncing');
+      if (editingItem) {
+        setToppings((prev) =>
+          prev.map((t) => t.id === editingItem.id ? { ...t, name: toppingForm.name.trim(), price } : t)
+        );
+        await gsPost('updateTopping', { originalName: editingItem.name, name: toppingForm.name.trim(), price });
+      } else {
+        const newT = { id: generateId(), name: toppingForm.name.trim(), price };
+        setToppings((prev) => [...prev, newT]);
+        await gsPost('addTopping', newT);
+      }
+      setCloudStatus('ok');
+    } catch {
+      setCloudStatus('error');
     }
     setToppingForm({ name: '', price: '' });
     setEditingItem(null);
     setMenuView('list');
   };
 
-  const deleteTopping = (id) => {
+  const deleteTopping = async (id) => {
+    const topping = toppings.find((t) => t.id === id);
     setToppings((prev) => prev.filter((t) => t.id !== id));
+    try {
+      setCloudStatus('syncing');
+      await gsPost('deleteTopping', { name: topping.name });
+      setCloudStatus('ok');
+    } catch {
+      setCloudStatus('error');
+    }
   };
 
   const startEditTopping = (topping) => {
@@ -278,13 +371,30 @@ export default function App() {
 
   const currentOrderTotal = currentOrder.reduce((s, i) => s + i.totalPrice, 0);
 
+  // Cloud status badge
+  const CloudBadge = () => {
+    if (cloudStatus === 'syncing') return (
+      <span className="cloud-badge syncing"><RefreshCw size={12} className="spin" /> Đang sync...</span>
+    );
+    if (cloudStatus === 'ok') return (
+      <span className="cloud-badge ok"><Cloud size={12} /> Đã lưu</span>
+    );
+    if (cloudStatus === 'error') return (
+      <span className="cloud-badge error"><CloudOff size={12} /> Offline</span>
+    );
+    return null;
+  };
+
   // ──────────────────────────────────────────────
   // RENDER: ORDER TAB
   // ──────────────────────────────────────────────
   const renderOrderTab = () => (
     <div className="order-tab">
       <header className="header">
-        <h2>Bán hàng</h2>
+        <div className="header-row">
+          <h2>Bán hàng</h2>
+          <CloudBadge />
+        </div>
         <div className="search-bar">
           <Search size={16} className="search-icon" />
           <input

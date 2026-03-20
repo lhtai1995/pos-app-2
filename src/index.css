@@ -454,7 +454,6 @@ body {
 /* ──────────────────────────────────────────────
    REPORT TAB
 ────────────────────────────────────────────── */
-.report-tab { }
 .report-body { padding: 16px; }
 
 .report-summary {
@@ -545,7 +544,6 @@ body {
 /* ──────────────────────────────────────────────
    MENU MANAGEMENT TAB
 ────────────────────────────────────────────── */
-.menu-mgmt-tab { }
 
 .sub-tabs {
   display: flex;
@@ -688,7 +686,6 @@ body {
 /* ──────────────────────────────────────────────
    FORM PAGE
 ────────────────────────────────────────────── */
-.form-page { }
 
 .form-body {
   padding: 20px 16px;
@@ -819,3 +816,47 @@ body {
 @keyframes spin {
   to { transform: rotate(360deg); }
 }
+
+/* ──────────────────────────────────────────────
+   CLOUD STATUS BADGE
+────────────────────────────────────────────── */
+.header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.header-row h2 {
+  margin-bottom: 0;
+}
+
+.cloud-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 9px;
+  border-radius: 20px;
+  font-size: 0.73rem;
+  font-weight: 500;
+}
+
+.cloud-badge.syncing {
+  background: #FEF3C7;
+  color: #92400E;
+}
+
+.cloud-badge.ok {
+  background: var(--secondary-light);
+  color: #065F46;
+}
+
+.cloud-badge.error {
+  background: var(--danger-light);
+  color: var(--danger);
+}
+
+.cloud-badge .spin {
+  animation: spin 1s linear infinite;
+}
+
