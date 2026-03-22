@@ -92,10 +92,11 @@ export default function App() {
   const [menuTab, setMenuTab] = useState('items');
 
   // Form state
-  const [form, setForm] = useState({ category: '', name: '', price: '' });
+  const [form, setForm] = useState({ category: '', name: '', price: '', applicableToppings: [] });
   const [toppingForm, setToppingForm] = useState({ name: '', price: '' });
   const [expandedCategories, setExpandedCategories] = useState({});
   const [isRefreshingOrders, setIsRefreshingOrders] = useState(false);
+  const [orderQty, setOrderQty] = useState(1);
 
   // ── LOAD DATA ──
   useEffect(() => {
@@ -224,6 +225,7 @@ export default function App() {
   const handleAddItemToCurrentOrder = (item) => {
     setSelectedItemToAdd(item);
     setSelectedToppings([]);
+    setOrderQty(1);
     setShowToppingSheet(true);
   };
 
@@ -236,13 +238,13 @@ export default function App() {
   };
 
   const confirmAddItem = () => {
+    const unitPrice = selectedItemToAdd.price + selectedToppings.reduce((s, t) => s + t.price, 0);
     const newItem = {
       ...selectedItemToAdd,
       cartId: generateId(),
       toppings: [...selectedToppings],
-      totalPrice:
-        selectedItemToAdd.price +
-        selectedToppings.reduce((s, t) => s + t.price, 0),
+      quantity: orderQty,
+      totalPrice: unitPrice * orderQty,
     };
     setCurrentOrder((prev) => [...prev, newItem]);
     setShowToppingSheet(false);
@@ -294,7 +296,13 @@ export default function App() {
       setCloudStatus('syncing');
       if (editingItem) {
         setMenuItems((prev) =>
-          prev.map((i) => i.id === editingItem.id ? { ...i, category: form.category.trim(), name: form.name.trim(), price } : i)
+          prev.map((i) => i.id === editingItem.id ? {
+            ...i,
+            category: form.category.trim(),
+            name: form.name.trim(),
+            price,
+            applicableToppings: form.applicableToppings,
+          } : i)
         );
         await gsPost('updateMenuItem', {
           originalName: editingItem.name,
@@ -302,9 +310,16 @@ export default function App() {
           category: form.category.trim(),
           name: form.name.trim(),
           price,
+          applicableToppings: form.applicableToppings,
         });
       } else {
-        const newItem = { id: generateId(), category: form.category.trim(), name: form.name.trim(), price };
+        const newItem = {
+          id: generateId(),
+          category: form.category.trim(),
+          name: form.name.trim(),
+          price,
+          applicableToppings: form.applicableToppings,
+        };
         setMenuItems((prev) => [...prev, newItem]);
         await gsPost('addMenuItem', newItem);
       }
@@ -312,7 +327,7 @@ export default function App() {
     } catch {
       setCloudStatus('error');
     }
-    setForm({ category: '', name: '', price: '' });
+    setForm({ category: '', name: '', price: '', applicableToppings: [] });
     setEditingItem(null);
     setMenuView('list');
   };
@@ -331,7 +346,12 @@ export default function App() {
 
   const startEditItem = (item) => {
     setEditingItem(item);
-    setForm({ category: item.category, name: item.name, price: String(item.price) });
+    setForm({
+      category: item.category,
+      name: item.name,
+      price: String(item.price),
+      applicableToppings: item.applicableToppings || [],
+    });
     setMenuView('editItem');
   };
 
@@ -505,70 +525,74 @@ export default function App() {
       )}
 
       {/* Topping Bottom Sheet */}
-      {showToppingSheet && (
-        <div
-          className="bottom-sheet-overlay"
-          onClick={() => setShowToppingSheet(false)}
-        >
-          <div className="bottom-sheet" onClick={(e) => e.stopPropagation()}>
-            <div className="sheet-header">
-              <div>
-                <h3>Thêm vào đơn</h3>
-                <p>{selectedItemToAdd?.name}</p>
+      {showToppingSheet && (() => {
+        // Lọc topping theo món được chọn
+        const applicableToppingNames = selectedItemToAdd?.applicableToppings || [];
+        const visibleToppings = applicableToppingNames.length > 0
+          ? toppings.filter(t => applicableToppingNames.includes(t.name))
+          : toppings; // fallback: hiện tất cả nếu chưa set
+        const unitPrice = (selectedItemToAdd?.price || 0) + selectedToppings.reduce((s, t) => s + t.price, 0);
+
+        return (
+          <div className="bottom-sheet-overlay" onClick={() => setShowToppingSheet(false)}>
+            <div className="bottom-sheet" onClick={(e) => e.stopPropagation()}>
+              <div className="sheet-header">
+                <div>
+                  <h3>Thêm vào đơn</h3>
+                  <p>{selectedItemToAdd?.name}</p>
+                </div>
+                <button className="sheet-close" onClick={() => setShowToppingSheet(false)}>
+                  <X size={20} />
+                </button>
               </div>
-              <button
-                className="sheet-close"
-                onClick={() => setShowToppingSheet(false)}
-              >
-                <X size={20} />
+
+              {/* Số lượng */}
+              <div className="qty-row">
+                <span className="qty-label">Số lượng</span>
+                <div className="qty-stepper">
+                  <button className="qty-btn" onClick={() => setOrderQty(q => Math.max(1, q - 1))}>−</button>
+                  <span className="qty-value">{orderQty}</span>
+                  <button className="qty-btn" onClick={() => setOrderQty(q => q + 1)}>+</button>
+                </div>
+              </div>
+
+              {/* Topping */}
+              {visibleToppings.length > 0 && (
+                <div className="topping-list">
+                  <h4>Chọn Topping</h4>
+                  {visibleToppings.map((topping) => {
+                    const isSelected = selectedToppings.find(t => t.id === topping.id);
+                    return (
+                      <div
+                        key={topping.id}
+                        className={`topping-item ${isSelected ? 'selected' : ''}`}
+                        onClick={() => toggleTopping(topping)}
+                      >
+                        <span>{topping.name}</span>
+                        <div className="topping-right">
+                          <span>+{formatPrice(topping.price)}</span>
+                          {isSelected && <Check size={16} className="check-icon" />}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              <div className="sheet-preview">
+                <span>{selectedItemToAdd?.name}{orderQty > 1 ? ` x${orderQty}` : ''}</span>
+                {selectedToppings.map((t) => (
+                  <span key={t.id} className="preview-topping">+ {t.name}</span>
+                ))}
+              </div>
+
+              <button className="confirm-btn" onClick={confirmAddItem}>
+                Xác nhận — {formatPrice(unitPrice * orderQty)}
               </button>
             </div>
-
-            {toppings.length > 0 && (
-              <div className="topping-list">
-                <h4>Chọn Topping</h4>
-                {toppings.map((topping) => {
-                  const isSelected = selectedToppings.find(
-                    (t) => t.id === topping.id
-                  );
-                  return (
-                    <div
-                      key={topping.id}
-                      className={`topping-item ${isSelected ? 'selected' : ''}`}
-                      onClick={() => toggleTopping(topping)}
-                    >
-                      <span>{topping.name}</span>
-                      <div className="topping-right">
-                        <span>+{formatPrice(topping.price)}</span>
-                        {isSelected && (
-                          <Check size={16} className="check-icon" />
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-
-            <div className="sheet-preview">
-              <span>{selectedItemToAdd?.name}</span>
-              {selectedToppings.map((t) => (
-                <span key={t.id} className="preview-topping">
-                  + {t.name}
-                </span>
-              ))}
-            </div>
-
-            <button className="confirm-btn" onClick={confirmAddItem}>
-              Xác nhận —{' '}
-              {formatPrice(
-                (selectedItemToAdd?.price || 0) +
-                  selectedToppings.reduce((s, t) => s + t.price, 0)
-              )}
-            </button>
           </div>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 
@@ -697,15 +721,11 @@ export default function App() {
                 className="form-input"
                 placeholder="VD: Coffee, Latte, Trà Trái Cây..."
                 value={form.category}
-                onChange={(e) =>
-                  setForm((p) => ({ ...p, category: e.target.value }))
-                }
+                onChange={(e) => setForm((p) => ({ ...p, category: e.target.value }))}
                 list="category-list"
               />
               <datalist id="category-list">
-                {categories.map((c) => (
-                  <option key={c} value={c} />
-                ))}
+                {categories.map((c) => <option key={c} value={c} />)}
               </datalist>
             </div>
           )}
@@ -716,9 +736,7 @@ export default function App() {
               className="form-input"
               placeholder={isTopping ? 'VD: Hạt Đác' : 'VD: Matcha Latte - L'}
               value={currentForm.name}
-              onChange={(e) =>
-                setCurrentForm((p) => ({ ...p, name: e.target.value }))
-              }
+              onChange={(e) => setCurrentForm((p) => ({ ...p, name: e.target.value }))}
             />
           </div>
 
@@ -729,16 +747,42 @@ export default function App() {
               type="number"
               placeholder="VD: 25000"
               value={currentForm.price}
-              onChange={(e) =>
-                setCurrentForm((p) => ({ ...p, price: e.target.value }))
-              }
+              onChange={(e) => setCurrentForm((p) => ({ ...p, price: e.target.value }))}
             />
           </div>
 
-          <button
-            className="save-btn"
-            onClick={isTopping ? saveTopping : saveMenuItem}
-          >
+          {/* Checklist topping — chỉ hiện khi thêm/sửa món (không phải topping) */}
+          {!isTopping && toppings.length > 0 && (
+            <div className="form-group">
+              <label>Topping áp dụng cho món này</label>
+              <p className="form-hint">Chỉ những topping được chọn mới hiện khi log món này</p>
+              <div className="topping-checklist">
+                {toppings.map((t) => {
+                  const checked = (form.applicableToppings || []).includes(t.name);
+                  return (
+                    <label key={t.id} className={`topping-check-item ${checked ? 'checked' : ''}`}>
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => {
+                          setForm((p) => ({
+                            ...p,
+                            applicableToppings: checked
+                              ? p.applicableToppings.filter(n => n !== t.name)
+                              : [...(p.applicableToppings || []), t.name],
+                          }));
+                        }}
+                      />
+                      <span>{t.name}</span>
+                      <span className="topping-check-price">+{formatPrice(t.price)}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          <button className="save-btn" onClick={isTopping ? saveTopping : saveMenuItem}>
             <Check size={18} />
             {isEdit ? 'Lưu thay đổi' : 'Thêm mới'}
           </button>
