@@ -15,6 +15,7 @@ function doGet(e) {
     else if (action === 'getOrders') result = getOrders();
     else if (action === 'getTodayOrders') result = getTodayOrders();
     else if (action === 'getToppingGroups') result = getToppingGroups();
+    else if (action === 'getAllData') result = getAllData();
     else result = { error: 'Unknown action' };
 
     return jsonResponse(result);
@@ -319,4 +320,14 @@ function syncToppingGroups(groups) {
     ]);
   });
   return { success: true, count: groups.length };
+}
+
+// ── PERFORMANCE: Single endpoint lấy tất cả data ────
+// Giảm từ 3 requests → 1 request (tiết kiệm ~2s cold start)
+function getAllData() {
+  return {
+    menu: getMenu(),
+    toppingGroups: getToppingGroups(),
+    todayOrders: getTodayOrders(),
+  };
 }

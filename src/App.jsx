@@ -87,73 +87,77 @@ export default function App() {
   // ─────────────────────────────────────────────
   useEffect(() => {
     const init = async () => {
-      setIsLoading(true);
+      // ── STEP 1: Load từ cache ngay lập tức (0ms) ──
+      const cachedMenu = loadFromStorage(STORAGE_KEYS.MENU);
+      const cachedGroups = loadFromStorage(STORAGE_KEYS.TOPPING_GROUPS);
+      const cachedOrders = loadFromStorage(STORAGE_KEYS.ORDERS);
+
+      if (cachedMenu?.length) setMenuItems(cachedMenu);
+      if (cachedGroups?.length) setToppingGroups(cachedGroups);
+      if (cachedOrders?.length) setOrders(cachedOrders);
+
+      // Cho hiện UI ngay nếu đã có cache
+      setIsLoading(!cachedMenu?.length);
+
+      // ── STEP 2: Sync từ Sheet song song (background) ──
       setCloudStatus('syncing');
       try {
-        // ── Menu ──
-        const gsMenu = await gsGet('getMenu');
-        if (gsMenu?.length > 0) {
+        // Gọi cả 3 API cùng lúc thay vì tuần tự
+        const [gsMenu, gsGroups, gsOrders] = await Promise.all([
+          gsGet('getMenu'),
+          gsGet('getToppingGroups'),
+          gsGet('getTodayOrders'),
+        ]);
+
+        // Cập nhật Menu
+        if (gsMenu?.length > 0 && !gsMenu.error) {
           const parsed = gsMenu.map(r => ({
-            id: generateId(), category: r.category, name: r.name,
+            id: generateId(),
+            category: r.category,
+            name: r.name,
             price: Number(r.price),
-            applicableToppingGroups: (() => { try { return JSON.parse(r.applicableToppingGroups || '[]'); } catch { return []; } })(),
+            applicableToppingGroups: (() => {
+              try { return JSON.parse(r.applicableToppingGroups || '[]'); } catch { return []; }
+            })(),
           }));
           setMenuItems(parsed);
           saveToStorage(STORAGE_KEYS.MENU, parsed);
-        } else {
+        } else if (!cachedMenu?.length) {
+          // Sheet trống và không có cache → sync lên Sheet
           const saved = loadFromStorage(STORAGE_KEYS.MENU);
-          if (saved?.length > 0) { setMenuItems(saved); await gsPost('syncMenu', saved); }
+          if (saved?.length) await gsPost('syncMenu', saved);
         }
 
-        // ── Topping Groups ──
-        // Load from Sheet first, fallback to localStorage
-        const gsGroups = await gsGet('getToppingGroups');
+        // Cập nhật Topping Groups
         if (gsGroups?.length > 0 && !gsGroups.error) {
           setToppingGroups(gsGroups);
           saveToStorage(STORAGE_KEYS.TOPPING_GROUPS, gsGroups);
+        } else if (cachedGroups?.length) {
+          // Có cache nhưng Sheet trống → upload lên
+          await gsPost('syncToppingGroups', cachedGroups);
         } else {
-          const savedGroups = loadFromStorage(STORAGE_KEYS.TOPPING_GROUPS);
-          if (savedGroups?.length > 0) {
-            setToppingGroups(savedGroups);
-            // Sync lên Sheet
-            await gsPost('syncToppingGroups', savedGroups);
-          } else {
-            // Migrate flat toppings cũ
-            const gsToppings = await gsGet('getToppings');
-            if (gsToppings?.length > 0) {
-              const defaultGroup = {
-                id: generateId(), name: 'Topping',
-                items: gsToppings.map(t => ({ id: generateId(), name: t.name, price: Number(t.price) })),
-              };
-              const groups = [defaultGroup];
-              setToppingGroups(groups);
-              saveToStorage(STORAGE_KEYS.TOPPING_GROUPS, groups);
-              await gsPost('syncToppingGroups', groups);
-            }
+          // Migrate toppings cũ sang groups mới
+          const gsToppings = await gsGet('getToppings');
+          if (gsToppings?.length) {
+            const g = [{ id: generateId(), name: 'Topping', items: gsToppings.map(t => ({ id: generateId(), name: t.name, price: Number(t.price) })) }];
+            setToppingGroups(g);
+            saveToStorage(STORAGE_KEYS.TOPPING_GROUPS, g);
+            await gsPost('syncToppingGroups', g);
           }
         }
 
-        // ── Orders (today) ──
-        const gsOrders = await gsGet('getTodayOrders');
+        // Cập nhật Orders hôm nay
         if (gsOrders?.length > 0 && !gsOrders.error) {
           setOrders(gsOrders);
           saveToStorage(STORAGE_KEYS.ORDERS, gsOrders);
-        } else {
-          const saved = loadFromStorage(STORAGE_KEYS.ORDERS);
-          if (saved) setOrders(saved);
         }
 
         setCloudStatus('ok');
       } catch (err) {
-        console.error('Init failed, using cache', err);
+        console.error('Background sync failed, using cache', err);
         setCloudStatus('error');
-        const m = loadFromStorage(STORAGE_KEYS.MENU);
-        const g = loadFromStorage(STORAGE_KEYS.TOPPING_GROUPS);
-        const o = loadFromStorage(STORAGE_KEYS.ORDERS);
-        if (m) setMenuItems(m);
-        if (g) setToppingGroups(g);
-        if (o) setOrders(o);
       }
+
       setIsLoading(false);
     };
     init();
