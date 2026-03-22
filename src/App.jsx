@@ -1,62 +1,49 @@
 import React, { useState, useEffect } from 'react';
-import { BarChart3, Home, Settings, Plus, Trash2, X, Edit2, Check,
-  Search, Cloud, CloudOff, RefreshCw, ChevronDown, ChevronUp, FolderPlus } from 'lucide-react';
+import {
+  ref, set, push, update, remove, onValue, get,
+  query, orderByKey, startAt, endAt,
+} from 'firebase/database';
+import { db } from './firebase';
+import {
+  BarChart3, Home, Settings, Plus, Trash2, X, Edit2, Check,
+  Search, Wifi, WifiOff, RefreshCw, ChevronDown, ChevronUp, FolderPlus,
+} from 'lucide-react';
 
 // ──────────────────────────────────────────────
-// GOOGLE SHEETS API
+// STORAGE (cache offline)
 // ──────────────────────────────────────────────
-const GS_URL = 'https://script.google.com/macros/s/AKfycbzigqPwXPuR1j98CeX8YGrRZpPApXYmGtxotIdsWJGIbB38Gf0ATE0FPcufTElS-Fpo0A/exec';
-
-const gsGet = async (action, params = {}) => {
-  const qs = new URLSearchParams({ action, ...params }).toString();
-  const res = await fetch(`${GS_URL}?${qs}`);
-  return res.json();
-};
-
-const gsPost = async (action, payload) => {
-  const res = await fetch(GS_URL, {
-    method: 'POST',
-    body: JSON.stringify({ action, payload }),
-  });
-  return res.json();
-};
-
-// ──────────────────────────────────────────────
-// CONSTANTS
-// ──────────────────────────────────────────────
-const STORAGE_KEYS = {
-  MENU: 'dol_menu_items',
-  TOPPING_GROUPS: 'dol_topping_groups',
+const SK = {
+  MENU: 'dol_menu',
+  GROUPS: 'dol_groups',
   ORDERS: 'dol_orders',
-  REPORT_CACHE: 'dol_report_cache',
+  REPORT: 'dol_report_cache',
 };
 
-const REPORT_TTL = 5 * 60 * 1000; // 5 phút
+const REPORT_TTL = 5 * 60 * 1000;
+
+const fromStorage = (key) => {
+  try { const r = localStorage.getItem(key); return r ? JSON.parse(r) : null; } catch { return null; }
+};
+const toStorage = (key, data) => {
+  try { localStorage.setItem(key, JSON.stringify(data)); } catch {}
+};
 
 const loadReportCache = (period) => {
   try {
-    const raw = localStorage.getItem(STORAGE_KEYS.REPORT_CACHE);
-    if (!raw) return null;
-    const cache = JSON.parse(raw);
-    const entry = cache[period];
-    if (!entry) return null;
-    if (Date.now() - entry.ts > REPORT_TTL) return null; // hết hạn
-    return entry.data;
+    const cache = JSON.parse(localStorage.getItem(SK.REPORT) || '{}');
+    const e = cache[period];
+    if (!e || Date.now() - e.ts > REPORT_TTL) return null;
+    return e.data;
   } catch { return null; }
 };
-
 const saveReportCache = (period, data) => {
   try {
-    const raw = localStorage.getItem(STORAGE_KEYS.REPORT_CACHE);
-    const cache = raw ? JSON.parse(raw) : {};
+    const cache = JSON.parse(localStorage.getItem(SK.REPORT) || '{}');
     cache[period] = { data, ts: Date.now() };
-    localStorage.setItem(STORAGE_KEYS.REPORT_CACHE, JSON.stringify(cache));
+    localStorage.setItem(SK.REPORT, JSON.stringify(cache));
   } catch {}
 };
-
-const invalidateReportCache = () => {
-  localStorage.removeItem(STORAGE_KEYS.REPORT_CACHE);
-};
+const invalidateReportCache = () => localStorage.removeItem(SK.REPORT);
 
 // ──────────────────────────────────────────────
 // HELPERS
@@ -66,11 +53,35 @@ const formatPrice = (p) =>
 
 const generateId = () => `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 
-const loadFromStorage = (key) => {
-  try { const r = localStorage.getItem(key); return r ? JSON.parse(r) : null; }
-  catch { return null; }
+const dateKey = (d = new Date()) => d.toISOString().split('T')[0]; // YYYY-MM-DD
+
+// Parse Firebase snapshot của menu
+const parseMenu = (snap) => {
+  const data = snap.val() || {};
+  return Object.entries(data).map(([id, v]) => ({
+    id, category: v.category, name: v.name, price: v.price,
+    applicableToppingGroups: v.applicableToppingGroups || [],
+  }));
 };
-const saveToStorage = (key, data) => localStorage.setItem(key, JSON.stringify(data));
+
+// Parse Firebase snapshot của toppingGroups
+const parseGroups = (snap) => {
+  const data = snap.val() || {};
+  return Object.entries(data).map(([id, v]) => ({
+    id, name: v.name,
+    items: v.items
+      ? Object.entries(v.items).map(([tid, t]) => ({ id: tid, name: t.name, price: t.price }))
+      : [],
+  }));
+};
+
+// Parse Firebase snapshot của orders (1 ngày)
+const parseDayOrders = (snap, dateStr) => {
+  const data = snap.val() || {};
+  return Object.entries(data)
+    .map(([id, v]) => ({ id, dateKey: dateStr, ...v }))
+    .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+};
 
 // ──────────────────────────────────────────────
 // APP
@@ -79,10 +90,10 @@ export default function App() {
   // ── Core state ──
   const [activeTab, setActiveTab] = useState('order');
   const [menuItems, setMenuItems] = useState([]);
-  const [toppingGroups, setToppingGroups] = useState([]); // [{ id, name, items: [{id,name,price}] }]
+  const [toppingGroups, setToppingGroups] = useState([]);
   const [orders, setOrders] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [cloudStatus, setCloudStatus] = useState('idle');
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
 
   // ── Order states ──
   const [currentOrder, setCurrentOrder] = useState([]);
@@ -90,14 +101,12 @@ export default function App() {
   const [selectedItemToAdd, setSelectedItemToAdd] = useState(null);
   const [selectedToppings, setSelectedToppings] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
-  const [isRefreshingOrders, setIsRefreshingOrders] = useState(false);
 
   // ── Report states ──
   const [reportPeriod, setReportPeriod] = useState('today');
   const [periodOrders, setPeriodOrders] = useState([]);
-  const [prevPeriodOrders, setPrevPeriodOrders] = useState([]);
+  const [cachedReport, setCachedReport] = useState(null);
   const [isLoadingPeriod, setIsLoadingPeriod] = useState(false);
-  const [cachedReport, setCachedReport] = useState(null); // { curr: {revenue,count,orders,byDay,rawOrders}, prev: {...} }
 
   // ── Menu management states ──
   const [menuView, setMenuView] = useState('list');
@@ -105,294 +114,151 @@ export default function App() {
   const [menuTab, setMenuTab] = useState('items');
   const [expandedCategories, setExpandedCategories] = useState({});
   const [expandedGroups, setExpandedGroups] = useState({});
-
-  // ── Menu item form ──
   const [form, setForm] = useState({ category: '', name: '', price: '', applicableToppingGroups: [] });
-
-  // ── Topping group form ──
   const [groupForm, setGroupForm] = useState({ name: '' });
   const [toppingForm, setToppingForm] = useState({ name: '', price: '', groupId: '' });
 
-  // ─────────────────────────────────────────────
-  // DERIVED: flat list of all toppings (from groups)
-  // ─────────────────────────────────────────────
-  const allToppings = toppingGroups.flatMap(g => g.items);
-
-  // ─────────────────────────────────────────────
-  // INIT DATA
-  // ─────────────────────────────────────────────
+  // ──────────────────────────────────────────────
+  // REAL-TIME FIREBASE LISTENERS
+  // ──────────────────────────────────────────────
   useEffect(() => {
-    const init = async () => {
-      // ── STEP 1: Load từ cache ngay lập tức (0ms) ──
-      const cachedMenu = loadFromStorage(STORAGE_KEYS.MENU);
-      const cachedGroups = loadFromStorage(STORAGE_KEYS.TOPPING_GROUPS);
-      const cachedOrders = loadFromStorage(STORAGE_KEYS.ORDERS);
+    // Show cache ngay lập tức (0ms)
+    const cm = fromStorage(SK.MENU); const cg = fromStorage(SK.GROUPS); const co = fromStorage(SK.ORDERS);
+    if (cm?.length) setMenuItems(cm);
+    if (cg?.length) setToppingGroups(cg);
+    if (co?.length) setOrders(co);
+    setIsLoading(!cm?.length);
 
-      if (cachedMenu?.length) setMenuItems(cachedMenu);
-      if (cachedGroups?.length) setToppingGroups(cachedGroups);
-      if (cachedOrders?.length) setOrders(cachedOrders);
+    // Online/offline monitor
+    const onOnline = () => setIsOnline(true);
+    const onOffline = () => setIsOnline(false);
+    window.addEventListener('online', onOnline);
+    window.addEventListener('offline', onOffline);
 
-      // Cho hiện UI ngay nếu đã có cache
-      setIsLoading(!cachedMenu?.length);
-
-      // ── STEP 2: Sync từ Sheet song song (background) ──
-      setCloudStatus('syncing');
-      try {
-        // Gọi cả 3 API cùng lúc thay vì tuần tự
-        const [gsMenu, gsGroups, gsOrders] = await Promise.all([
-          gsGet('getMenu'),
-          gsGet('getToppingGroups'),
-          gsGet('getTodayOrders'),
-        ]);
-
-        // Cập nhật Menu
-        if (gsMenu?.length > 0 && !gsMenu.error) {
-          const parsed = gsMenu.map(r => ({
-            id: generateId(),
-            category: r.category,
-            name: r.name,
-            price: Number(r.price),
-            applicableToppingGroups: (() => {
-              try { return JSON.parse(r.applicableToppingGroups || '[]'); } catch { return []; }
-            })(),
-          }));
-          setMenuItems(parsed);
-          saveToStorage(STORAGE_KEYS.MENU, parsed);
-        } else if (!cachedMenu?.length) {
-          // Sheet trống và không có cache → sync lên Sheet
-          const saved = loadFromStorage(STORAGE_KEYS.MENU);
-          if (saved?.length) await gsPost('syncMenu', saved);
-        }
-
-        // Cập nhật Topping Groups
-        if (gsGroups?.length > 0 && !gsGroups.error) {
-          setToppingGroups(gsGroups);
-          saveToStorage(STORAGE_KEYS.TOPPING_GROUPS, gsGroups);
-        } else if (cachedGroups?.length) {
-          // Có cache nhưng Sheet trống → upload lên
-          await gsPost('syncToppingGroups', cachedGroups);
-        } else {
-          // Migrate toppings cũ sang groups mới
-          const gsToppings = await gsGet('getToppings');
-          if (gsToppings?.length) {
-            const g = [{ id: generateId(), name: 'Topping', items: gsToppings.map(t => ({ id: generateId(), name: t.name, price: Number(t.price) })) }];
-            setToppingGroups(g);
-            saveToStorage(STORAGE_KEYS.TOPPING_GROUPS, g);
-            await gsPost('syncToppingGroups', g);
-          }
-        }
-
-        // Cập nhật Orders hôm nay — smart merge
-        if (gsOrders?.length > 0 && !gsOrders.error) {
-          setOrders(prev => {
-            const sheetIds = new Set(gsOrders.map(o => o.id));
-            // Giữ lại order local chưa được sync lên Sheet
-            const pendingLocal = prev.filter(o => !sheetIds.has(o.id));
-            const merged = [...pendingLocal, ...gsOrders]
-              .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-            saveToStorage(STORAGE_KEYS.ORDERS, merged);
-            return merged;
-          });
-        }
-
-        setCloudStatus('ok');
-      } catch (err) {
-        console.error('Background sync failed, using cache', err);
-        setCloudStatus('error');
-      }
-
+    // ── Listen: Menu (real-time) ──
+    const unsubMenu = onValue(ref(db, 'menu'), snap => {
+      const items = parseMenu(snap);
+      setMenuItems(items);
+      toStorage(SK.MENU, items);
       setIsLoading(false);
+    });
+
+    // ── Listen: ToppingGroups (real-time) ──
+    const unsubGroups = onValue(ref(db, 'toppingGroups'), snap => {
+      const groups = parseGroups(snap);
+      setToppingGroups(groups);
+      toStorage(SK.GROUPS, groups);
+    });
+
+    // ── Listen: Today's Orders (real-time) ──
+    const todayKey = dateKey();
+    const unsubOrders = onValue(ref(db, `orders/${todayKey}`), snap => {
+      const todayOrders = parseDayOrders(snap, todayKey);
+      setOrders(todayOrders);
+      toStorage(SK.ORDERS, todayOrders);
+      setIsLoading(false);
+    });
+
+    return () => {
+      unsubMenu(); unsubGroups(); unsubOrders();
+      window.removeEventListener('online', onOnline);
+      window.removeEventListener('offline', onOffline);
     };
-    init();
   }, []);
 
-  // ── Auto-refresh orders when on report tab ──
-  const fetchTodayOrders = async (silent = false) => {
-    if (!silent) setIsRefreshingOrders(true);
-    try {
-      const gs = await gsGet('getTodayOrders');
-      if (gs && !gs.error) {
-        setOrders(prev => {
-          const sheetIds = new Set(gs.map(o => o.id));
-          const pendingLocal = prev.filter(o => !sheetIds.has(o.id));
-          const merged = [...pendingLocal, ...gs]
-            .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-          saveToStorage(STORAGE_KEYS.ORDERS, merged);
-          return merged;
-        });
-      }
-    } catch {}
-    if (!silent) setIsRefreshingOrders(false);
-  };
+  // Derived
+  const allToppings = toppingGroups.flatMap(g => g.items);
+  const categories = [...new Set(menuItems.map(i => i.category))];
+  const filteredItems = searchQuery
+    ? menuItems.filter(i => i.name.toLowerCase().includes(searchQuery.toLowerCase()) || i.category.toLowerCase().includes(searchQuery.toLowerCase()))
+    : menuItems;
+  const filteredByCategory = categories.reduce((acc, cat) => {
+    const items = filteredItems.filter(i => i.category === cat);
+    if (items.length) acc[cat] = items;
+    return acc;
+  }, {});
+  const currentOrderTotal = currentOrder.reduce((s, i) => s + i.totalPrice, 0);
 
-  // ── Period range helpers ──
-  const getPeriodRange = (period) => {
-    const now = new Date();
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const todayEnd = new Date(today.getTime() + 86400000 - 1);
-    if (period === 'today') return {
-      start: today, end: todayEnd,
-      prevStart: new Date(today.getTime() - 86400000),
-      prevEnd: new Date(today.getTime() - 1),
-      label: 'Hôm nay', prevLabel: 'Hôm qua',
-    };
-    if (period === 'week') {
-      const day = today.getDay() || 7;
-      const weekStart = new Date(today.getTime() - (day - 1) * 86400000);
-      return {
-        start: weekStart, end: todayEnd,
-        prevStart: new Date(weekStart.getTime() - 7 * 86400000),
-        prevEnd: new Date(weekStart.getTime() - 1),
-        label: 'Tuần này', prevLabel: 'Tuần trước',
-      };
-    }
-    if (period === 'month') {
-      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-      const prevMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-      const prevMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59);
-      return {
-        start: monthStart, end: todayEnd,
-        prevStart: prevMonthStart, prevEnd: prevMonthEnd,
-        label: 'Tháng này', prevLabel: 'Tháng trước',
-      };
-    }
-  };
-
-  const fetchPeriodData = async (period, forceRefresh = false) => {
-    // Bước 1: Show cache ngay lập tức nếu có
-    const cached = loadReportCache(period);
-    if (cached && !forceRefresh) {
-      setPeriodOrders(cached.curr.rawOrders || []);
-      setPrevPeriodOrders([]);
-      // Inject aggregated data vào state — dùng ref
-      setCachedReport(cached);
-      // Vẫn refresh ngầm để update data mới nhất
-      setTimeout(() => fetchPeriodData(period, true), 0);
-      return;
-    }
-
-    // Bước 2: Fetch từ Sheet bằng endpoint đơn
-    setIsLoadingPeriod(!cached); // Chỉ show loading nếu không có cache
-    try {
-      const data = await gsGet('getReportData', { period });
-      if (!data?.error) {
-        saveReportCache(period, data);
-        setCachedReport(data);
-        setPeriodOrders(data.curr?.rawOrders || []);
-      }
-    } catch {}
-    setIsLoadingPeriod(false);
-  };
-
-  useEffect(() => {
-    if (activeTab !== 'report') return;
-    fetchPeriodData(reportPeriod);
-  }, [activeTab, reportPeriod]);
-
-  // ─────────────────────────────────────────────
+  // ──────────────────────────────────────────────
   // ORDER LOGIC
-  // ─────────────────────────────────────────────
+  // ──────────────────────────────────────────────
   const handleAddItem = (item) => {
     setSelectedItemToAdd(item);
     setSelectedToppings([]);
     setShowToppingSheet(true);
   };
 
-  const toggleTopping = (topping) => {
+  const toggleTopping = (t) => {
     setSelectedToppings(prev =>
-      prev.find(t => t.id === topping.id)
-        ? prev.filter(t => t.id !== topping.id)
-        : [...prev, topping]
+      prev.find(x => x.id === t.id) ? prev.filter(x => x.id !== t.id) : [...prev, t]
     );
   };
 
   const confirmAddItem = () => {
     const toppingTotal = selectedToppings.reduce((s, t) => s + t.price, 0);
-    const newItem = {
+    setCurrentOrder(prev => [...prev, {
       ...selectedItemToAdd,
       cartId: generateId(),
       toppings: [...selectedToppings],
       totalPrice: selectedItemToAdd.price + toppingTotal,
-    };
-    setCurrentOrder(prev => [...prev, newItem]);
+    }]);
     setShowToppingSheet(false);
   };
 
-  // Thêm lại cùng món vào đơn (nhanh, không qua topping sheet)
   const quickReAdd = (cartItem) => {
     setSelectedItemToAdd(cartItem);
     setSelectedToppings([]);
     setShowToppingSheet(true);
   };
 
-  const removeCartItem = (cartId) => {
-    setCurrentOrder(prev => prev.filter(i => i.cartId !== cartId));
-  };
+  const removeCartItem = (cartId) => setCurrentOrder(prev => prev.filter(i => i.cartId !== cartId));
 
   const completeOrder = async () => {
     if (!currentOrder.length) return;
+    const todayKey = dateKey();
+    const newRef = push(ref(db, `orders/${todayKey}`));
     const newOrder = {
-      id: generateId(),
-      items: currentOrder,
-      total: currentOrder.reduce((s, i) => s + i.totalPrice, 0),
+      id: newRef.key,
+      dateKey: todayKey,
+      items: currentOrder.map(({ cartId, ...rest }) => rest), // remove cartId before saving
+      total: currentOrderTotal,
       timestamp: new Date().toISOString(),
     };
-    setOrders(prev => [newOrder, ...prev]);
-    saveToStorage(STORAGE_KEYS.ORDERS, [newOrder, ...orders]);
     setCurrentOrder([]);
-    invalidateReportCache(); // Xóa cache báo cáo khi có đơn mới
-    try {
-      setCloudStatus('syncing');
-      await gsPost('addOrder', newOrder);
-      setCloudStatus('ok');
-    } catch { setCloudStatus('error'); }
+    invalidateReportCache();
+    await set(newRef, newOrder); // Real-time listener updates orders automatically
   };
 
-  const deleteOrder = async (orderId) => {
+  const deleteOrder = async (order) => {
     if (!window.confirm('Xóa giao dịch này?')) return;
-    const updated = orders.filter(o => o.id !== orderId);
-    setOrders(updated);
-    saveToStorage(STORAGE_KEYS.ORDERS, updated);
-    invalidateReportCache(); // Xóa cache khi xóa đơn
-    try {
-      setCloudStatus('syncing');
-      await gsPost('deleteOrder', { id: orderId });
-      setCloudStatus('ok');
-    } catch { setCloudStatus('error'); }
+    const dk = order.dateKey || dateKey(new Date(order.timestamp));
+    await remove(ref(db, `orders/${dk}/${order.id}`));
+    invalidateReportCache();
   };
 
-  // ─────────────────────────────────────────────
+  // ──────────────────────────────────────────────
   // MENU ITEM CRUD
-  // ─────────────────────────────────────────────
+  // ──────────────────────────────────────────────
   const saveMenuItem = async () => {
     if (!form.name.trim() || !form.category.trim() || !form.price) return;
-    const price = parseInt(form.price, 10);
     const payload = {
       category: form.category.trim(), name: form.name.trim(),
-      price, applicableToppingGroups: form.applicableToppingGroups,
+      price: parseInt(form.price, 10),
+      applicableToppingGroups: form.applicableToppingGroups || [],
     };
-    try {
-      setCloudStatus('syncing');
-      if (editingItem) {
-        setMenuItems(prev => prev.map(i => i.id === editingItem.id ? { ...i, ...payload } : i));
-        await gsPost('updateMenuItem', { originalName: editingItem.name, originalCategory: editingItem.category, ...payload });
-      } else {
-        const newItem = { id: generateId(), ...payload };
-        setMenuItems(prev => [...prev, newItem]);
-        await gsPost('addMenuItem', { ...payload, applicableToppingGroups: JSON.stringify(payload.applicableToppingGroups) });
-      }
-      setCloudStatus('ok');
-    } catch { setCloudStatus('error'); }
+    if (editingItem) {
+      await update(ref(db, `menu/${editingItem.id}`), payload);
+    } else {
+      const newRef = push(ref(db, 'menu'));
+      await set(newRef, payload);
+    }
     setForm({ category: '', name: '', price: '', applicableToppingGroups: [] });
     setEditingItem(null);
     setMenuView('list');
   };
 
   const deleteMenuItem = async (id) => {
-    const item = menuItems.find(i => i.id === id);
-    setMenuItems(prev => prev.filter(i => i.id !== id));
-    try { setCloudStatus('syncing'); await gsPost('deleteMenuItem', { name: item.name, category: item.category }); setCloudStatus('ok'); }
-    catch { setCloudStatus('error'); }
+    await remove(ref(db, `menu/${id}`));
   };
 
   const startEditItem = (item) => {
@@ -401,115 +267,147 @@ export default function App() {
     setMenuView('editItem');
   };
 
-  // Helper: lưu groups và sync lên Sheet
-  const saveGroups = async (updated) => {
-    setToppingGroups(updated);
-    saveToStorage(STORAGE_KEYS.TOPPING_GROUPS, updated);
-    try {
-      setCloudStatus('syncing');
-      await gsPost('syncToppingGroups', updated);
-      setCloudStatus('ok');
-    } catch { setCloudStatus('error'); }
-  };
-
-  const saveGroup = () => {
+  // ──────────────────────────────────────────────
+  // TOPPING GROUP CRUD
+  // ──────────────────────────────────────────────
+  const saveGroup = async () => {
     if (!groupForm.name.trim()) return;
-    let updated;
     if (editingItem?.type === 'group') {
-      updated = toppingGroups.map(g => g.id === editingItem.id ? { ...g, name: groupForm.name.trim() } : g);
+      await update(ref(db, `toppingGroups/${editingItem.id}`), { name: groupForm.name.trim() });
     } else {
-      updated = [...toppingGroups, { id: generateId(), name: groupForm.name.trim(), items: [] }];
+      const newRef = push(ref(db, 'toppingGroups'));
+      await set(newRef, { name: groupForm.name.trim(), items: {} });
     }
-    saveGroups(updated);
-    setGroupForm({ name: '' });
-    setEditingItem(null);
-    setMenuView('list');
+    setGroupForm({ name: '' }); setEditingItem(null); setMenuView('list');
   };
 
-  const deleteGroup = (groupId) => {
+  const deleteGroup = async (groupId) => {
     if (!window.confirm('Xóa nhóm topping này?')) return;
-    saveGroups(toppingGroups.filter(g => g.id !== groupId));
+    await remove(ref(db, `toppingGroups/${groupId}`));
   };
 
-  const saveToppingToGroup = () => {
+  const saveToppingToGroup = async () => {
     if (!toppingForm.name.trim() || !toppingForm.price || !toppingForm.groupId) return;
-    const price = parseInt(toppingForm.price, 10);
-    let updated;
+    const payload = { name: toppingForm.name.trim(), price: parseInt(toppingForm.price, 10) };
     if (editingItem?.type === 'topping') {
-      updated = toppingGroups.map(g => ({
-        ...g,
-        items: g.items.map(t => t.id === editingItem.id ? { ...t, name: toppingForm.name.trim(), price } : t),
-      }));
+      await update(ref(db, `toppingGroups/${editingItem.groupId}/items/${editingItem.id}`), payload);
     } else {
-      updated = toppingGroups.map(g =>
-        g.id === toppingForm.groupId
-          ? { ...g, items: [...g.items, { id: generateId(), name: toppingForm.name.trim(), price }] }
-          : g
-      );
+      const newRef = push(ref(db, `toppingGroups/${toppingForm.groupId}/items`));
+      await set(newRef, payload);
     }
-    saveGroups(updated);
-    setToppingForm({ name: '', price: '', groupId: '' });
-    setEditingItem(null);
-    setMenuView('list');
+    setToppingForm({ name: '', price: '', groupId: '' }); setEditingItem(null); setMenuView('list');
   };
 
-  const deleteToppingFromGroup = (groupId, toppingId) => {
-    saveGroups(toppingGroups.map(g =>
-      g.id === groupId ? { ...g, items: g.items.filter(t => t.id !== toppingId) } : g
-    ));
+  const deleteToppingFromGroup = async (groupId, toppingId) => {
+    await remove(ref(db, `toppingGroups/${groupId}/items/${toppingId}`));
   };
 
-  // ─────────────────────────────────────────────
-  // COMPUTED
-  // ─────────────────────────────────────────────
-  const categories = [...new Set(menuItems.map(i => i.category))];
-
-  const filteredItems = searchQuery
-    ? menuItems.filter(i =>
-        i.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        i.category.toLowerCase().includes(searchQuery.toLowerCase())
-      )
-    : menuItems;
-
-  const filteredByCategory = categories.reduce((acc, cat) => {
-    const items = filteredItems.filter(i => i.category === cat);
-    if (items.length) acc[cat] = items;
-    return acc;
-  }, {});
-
-  const todayOrders = orders.filter(
-    o => new Date(o.timestamp).toDateString() === new Date().toDateString()
-  );
-  const todayRevenue = todayOrders.reduce((s, o) => s + o.total, 0);
-  const todayCount = todayOrders.reduce((s, o) => s + o.items.length, 0);
-  const currentOrderTotal = currentOrder.reduce((s, i) => s + i.totalPrice, 0);
-
-  // Cloud badge
-  const CloudBadge = () => {
-    if (cloudStatus === 'syncing') return <span className="cloud-badge syncing"><RefreshCw size={12} className="spin" /> Đang sync...</span>;
-    if (cloudStatus === 'ok') return <span className="cloud-badge ok"><Cloud size={12} /> Đã lưu</span>;
-    if (cloudStatus === 'error') return <span className="cloud-badge error"><CloudOff size={12} /> Offline</span>;
-    return null;
+  // ──────────────────────────────────────────────
+  // REPORT DATA
+  // ──────────────────────────────────────────────
+  const getPeriodRange = (period) => {
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const todayEnd = new Date(today.getTime() + 86400000 - 1);
+    if (period === 'today') return {
+      start: today, end: todayEnd,
+      prevStart: new Date(today.getTime() - 86400000), prevEnd: new Date(today.getTime() - 1),
+      label: 'Hôm nay', prevLabel: 'Hôm qua',
+    };
+    if (period === 'week') {
+      const day = today.getDay() || 7;
+      const weekStart = new Date(today.getTime() - (day - 1) * 86400000);
+      return {
+        start: weekStart, end: todayEnd,
+        prevStart: new Date(weekStart.getTime() - 7 * 86400000), prevEnd: new Date(weekStart.getTime() - 1),
+        label: 'Tuần này', prevLabel: 'Tuần trước',
+      };
+    }
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    return {
+      start: monthStart, end: todayEnd,
+      prevStart: new Date(now.getFullYear(), now.getMonth() - 1, 1),
+      prevEnd: new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59),
+      label: 'Tháng này', prevLabel: 'Tháng trước',
+    };
   };
 
-  // ─────────────────────────────────────────────
+  const fetchPeriodData = async (period, forceRefresh = false) => {
+    // Stale-while-revalidate
+    const cached = loadReportCache(period);
+    if (cached && !forceRefresh) {
+      setCachedReport(cached);
+      setPeriodOrders(cached.curr?.rawOrders || []);
+      setTimeout(() => fetchPeriodData(period, true), 0);
+      return;
+    }
+
+    setIsLoadingPeriod(!cached);
+    try {
+      const range = getPeriodRange(period);
+      const sk = dateKey(range.start), ek = dateKey(range.end);
+      const psk = dateKey(range.prevStart), pek = dateKey(range.prevEnd);
+
+      // Firebase query by date partition key
+      const [currSnap, prevSnap] = await Promise.all([
+        get(query(ref(db, 'orders'), orderByKey(), startAt(sk), endAt(ek))),
+        get(query(ref(db, 'orders'), orderByKey(), startAt(psk), endAt(pek))),
+      ]);
+
+      const extractOrders = (snap) => {
+        const data = snap.val() || {};
+        return Object.entries(data).flatMap(([dk, dayOrders]) =>
+          Object.entries(dayOrders || {}).map(([id, o]) => ({ id, dateKey: dk, ...o }))
+        ).sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+      };
+
+      const aggregate = (orders, includeRaw) => ({
+        revenue: orders.reduce((s, o) => s + o.total, 0),
+        count: orders.reduce((s, o) => s + (o.items?.length || 0), 0),
+        orders: orders.length,
+        byDay: orders.reduce((acc, o) => {
+          const d = new Date(o.timestamp);
+          const k = `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}`;
+          if (!acc[k]) acc[k] = { revenue: 0, count: 0 };
+          acc[k].revenue += o.total; acc[k].count += o.items?.length || 0;
+          return acc;
+        }, {}),
+        rawOrders: includeRaw ? orders : [],
+      });
+
+      const currOrders = extractOrders(currSnap);
+      const prevOrders = extractOrders(prevSnap);
+      const report = { curr: aggregate(currOrders, true), prev: aggregate(prevOrders, false) };
+
+      saveReportCache(period, report);
+      setCachedReport(report);
+      setPeriodOrders(report.curr.rawOrders);
+    } catch (err) { console.error('Report error', err); }
+    setIsLoadingPeriod(false);
+  };
+
+  useEffect(() => {
+    if (activeTab !== 'report') return;
+    fetchPeriodData(reportPeriod);
+  }, [activeTab, reportPeriod]);
+
+  // ──────────────────────────────────────────────
+  // STATUS BADGE
+  // ──────────────────────────────────────────────
+  const StatusBadge = () => isOnline
+    ? <span className="cloud-badge ok"><Wifi size={12} /> Online</span>
+    : <span className="cloud-badge error"><WifiOff size={12} /> Offline</span>;
+
+  // ──────────────────────────────────────────────
   // RENDER: ORDER TAB
-  // ─────────────────────────────────────────────
+  // ──────────────────────────────────────────────
   const renderOrderTab = () => (
     <div className="order-tab">
       <header className="header">
-        <div className="header-row">
-          <h2>Bán hàng</h2>
-          <CloudBadge />
-        </div>
+        <div className="header-row"><h2>Bán hàng</h2><StatusBadge /></div>
         <div className="search-bar">
           <Search size={16} className="search-icon" />
-          <input
-            className="search-input"
-            placeholder="Tìm món..."
-            value={searchQuery}
-            onChange={e => setSearchQuery(e.target.value)}
-          />
+          <input className="search-input" placeholder="Tìm món..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
         </div>
       </header>
 
@@ -521,17 +419,13 @@ export default function App() {
         ) : (
           Object.entries(filteredByCategory).map(([cat, items]) => (
             <div key={cat} className="category-section">
-              <button
-                className="category-header"
-                onClick={() => setExpandedCategories(p => ({ ...p, [cat]: !p[cat] }))}
-              >
+              <button className="category-header" onClick={() => setExpandedCategories(p => ({ ...p, [cat]: !p[cat] }))}>
                 <span className="cat-name">{cat}</span>
                 <span className="cat-meta">
                   <span className="cat-count">{items.length}</span>
                   {expandedCategories[cat] ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
                 </span>
               </button>
-
               {!expandedCategories[cat] && (
                 <div className="item-grid">
                   {items.map(item => (
@@ -550,27 +444,19 @@ export default function App() {
         )}
       </div>
 
-      {/* Current Order Bar */}
       {currentOrder.length > 0 && (
         <div className="current-order-bar">
-          {/* Mini order list */}
           <div className="mini-order-list">
             {currentOrder.map(item => (
               <div key={item.cartId} className="mini-order-item">
                 <span className="mini-item-name">
                   {item.name}
-                  {item.toppings.length > 0 && (
-                    <span className="mini-toppings"> · {item.toppings.map(t => t.name).join(', ')}</span>
-                  )}
+                  {item.toppings?.length > 0 && <span className="mini-toppings"> · {item.toppings.map(t => t.name).join(', ')}</span>}
                 </span>
                 <div className="mini-item-actions">
                   <span className="mini-item-price">{formatPrice(item.totalPrice)}</span>
-                  <button className="mini-re-add" onClick={() => quickReAdd(item)} title="Thêm ly này nữa">
-                    <Plus size={12} />
-                  </button>
-                  <button className="mini-delete" onClick={() => removeCartItem(item.cartId)} title="Xóa">
-                    <X size={12} />
-                  </button>
+                  <button className="mini-re-add" onClick={() => quickReAdd(item)}><Plus size={12} /></button>
+                  <button className="mini-delete" onClick={() => removeCartItem(item.cartId)}><X size={12} /></button>
                 </div>
               </div>
             ))}
@@ -582,66 +468,46 @@ export default function App() {
         </div>
       )}
 
-      {/* Topping Bottom Sheet */}
       {showToppingSheet && (() => {
         const appGroupIds = selectedItemToAdd?.applicableToppingGroups || [];
         const visibleGroups = appGroupIds.length > 0
           ? toppingGroups.filter(g => appGroupIds.includes(g.id))
           : toppingGroups;
-        const visibleToppings = visibleGroups.flatMap(g => g.items);
         const toppingTotal = selectedToppings.reduce((s, t) => s + t.price, 0);
-
         return (
           <div className="bottom-sheet-overlay" onClick={() => setShowToppingSheet(false)}>
             <div className="bottom-sheet" onClick={e => e.stopPropagation()}>
               <div className="sheet-header">
-                <div>
-                  <h3>Chọn topping</h3>
-                  <p>{selectedItemToAdd?.name}</p>
-                </div>
-                <button className="sheet-close" onClick={() => setShowToppingSheet(false)}>
-                  <X size={20} />
-                </button>
+                <div><h3>Chọn topping</h3><p>{selectedItemToAdd?.name}</p></div>
+                <button className="sheet-close" onClick={() => setShowToppingSheet(false)}><X size={20} /></button>
               </div>
-
-              {visibleToppings.length === 0 ? (
+              {visibleGroups.every(g => g.items.length === 0) ? (
                 <p className="empty-state" style={{ padding: '16px' }}>Món này không có topping</p>
               ) : (
                 <div className="topping-list">
-                  {/* Group by group name */}
-                  {visibleGroups.map(group => (
-                    group.items.length > 0 && (
-                      <div key={group.id} className="topping-group-section">
-                        <p className="topping-group-label">{group.name}</p>
-                        {group.items.map(topping => {
-                          const isSelected = selectedToppings.find(t => t.id === topping.id);
-                          return (
-                            <div
-                              key={topping.id}
-                              className={`topping-item ${isSelected ? 'selected' : ''}`}
-                              onClick={() => toggleTopping(topping)}
-                            >
-                              <span>{topping.name}</span>
-                              <div className="topping-right">
-                                <span>+{formatPrice(topping.price)}</span>
-                                {isSelected && <Check size={16} className="check-icon" />}
-                              </div>
+                  {visibleGroups.map(group => group.items.length > 0 && (
+                    <div key={group.id} className="topping-group-section">
+                      <p className="topping-group-label">{group.name}</p>
+                      {group.items.map(topping => {
+                        const isSel = selectedToppings.find(t => t.id === topping.id);
+                        return (
+                          <div key={topping.id} className={`topping-item ${isSel ? 'selected' : ''}`} onClick={() => toggleTopping(topping)}>
+                            <span>{topping.name}</span>
+                            <div className="topping-right">
+                              <span>+{formatPrice(topping.price)}</span>
+                              {isSel && <Check size={16} className="check-icon" />}
                             </div>
-                          );
-                        })}
-                      </div>
-                    )
+                          </div>
+                        );
+                      })}
+                    </div>
                   ))}
                 </div>
               )}
-
               <div className="sheet-preview">
                 <span>{selectedItemToAdd?.name}</span>
-                {selectedToppings.map(t => (
-                  <span key={t.id} className="preview-topping">+ {t.name}</span>
-                ))}
+                {selectedToppings.map(t => <span key={t.id} className="preview-topping">+ {t.name}</span>)}
               </div>
-
               <button className="confirm-btn" onClick={confirmAddItem}>
                 Thêm vào đơn — {formatPrice((selectedItemToAdd?.price || 0) + toppingTotal)}
               </button>
@@ -652,37 +518,26 @@ export default function App() {
     </div>
   );
 
-  // ─────────────────────────────────────────────
+  // ──────────────────────────────────────────────
   // RENDER: REPORT TAB
-  // ─────────────────────────────────────────────
+  // ──────────────────────────────────────────────
   const renderReportTab = () => {
     const range = getPeriodRange(reportPeriod);
-
-    // Đọc từ cachedReport (pre-aggregated từ server) — nhanh hơn tự reduce
     const curr = cachedReport?.curr || {};
     const prev = cachedReport?.prev || {};
-    const currRevenue = curr.revenue ?? periodOrders.reduce((s, o) => s + o.total, 0);
+    const currRevenue = curr.revenue ?? 0;
     const prevRevenue = prev.revenue ?? 0;
-    const currCount   = curr.count   ?? periodOrders.reduce((s, o) => s + (o.items?.length || 0), 0);
+    const currCount   = curr.count   ?? 0;
     const prevCount   = prev.count   ?? 0;
-    const currOrders  = curr.orders  ?? periodOrders.length;
+    const currOrders  = curr.orders  ?? 0;
     const prevOrders  = prev.orders  ?? 0;
     const byDay       = curr.byDay   ?? {};
 
-    const pct = (curr, prev) => {
-      if (!prev) return curr > 0 ? 100 : 0;
-      return Math.round(((curr - prev) / prev) * 100);
-    };
-
+    const pct = (c, p) => !p ? (c > 0 ? 100 : 0) : Math.round(((c - p) / p) * 100);
     const Trend = ({ curr, prev }) => {
       const p = pct(curr, prev);
-      if (prev === 0 && curr === 0) return null;
-      const up = p >= 0;
-      return (
-        <span className={`trend ${up ? 'up' : 'down'}`}>
-          {up ? '↑' : '↓'}{Math.abs(p)}% vs {range.prevLabel}
-        </span>
-      );
+      if (!prev && !curr) return null;
+      return <span className={`trend ${p >= 0 ? 'up' : 'down'}`}>{p >= 0 ? '↑' : '↓'}{Math.abs(p)}% vs {range.prevLabel}</span>;
     };
 
     return (
@@ -690,22 +545,13 @@ export default function App() {
         <header className="header">
           <div className="header-row">
             <h2>Báo cáo</h2>
-            <button
-              className={`refresh-btn ${isLoadingPeriod ? 'spinning' : ''}`}
-              onClick={() => fetchPeriodData(reportPeriod)}
-            >
+            <button className={`refresh-btn ${isLoadingPeriod ? 'spinning' : ''}`} onClick={() => fetchPeriodData(reportPeriod, true)}>
               <RefreshCw size={16} />
             </button>
           </div>
-
-          {/* Period Picker */}
           <div className="period-tabs">
             {[['today', 'Hôm nay'], ['week', 'Tuần này'], ['month', 'Tháng này']].map(([key, label]) => (
-              <button
-                key={key}
-                className={`period-tab ${reportPeriod === key ? 'active' : ''}`}
-                onClick={() => setReportPeriod(key)}
-              >
+              <button key={key} className={`period-tab ${reportPeriod === key ? 'active' : ''}`} onClick={() => setReportPeriod(key)}>
                 {label}
               </button>
             ))}
@@ -713,72 +559,54 @@ export default function App() {
         </header>
 
         <div className="report-body">
-          {isLoadingPeriod ? (
-            <div className="loading-state">Đang tải báo cáo...</div>
-          ) : (
+          {isLoadingPeriod ? <div className="loading-state">Đang tải báo cáo...</div> : (
             <>
-              {/* Summary Cards */}
               <div className="report-summary">
                 <div className="summary-card total">
-                  <p>Doanh thu</p>
-                  <h3>{formatPrice(currRevenue)}</h3>
+                  <p>Doanh thu</p><h3>{formatPrice(currRevenue)}</h3>
                   <Trend curr={currRevenue} prev={prevRevenue} />
                 </div>
                 <div className="summary-card count">
-                  <p>Ly bán</p>
-                  <h3>{currCount} ly</h3>
+                  <p>Ly bán</p><h3>{currCount} ly</h3>
                   <Trend curr={currCount} prev={prevCount} />
                 </div>
                 <div className="summary-card orders">
-                  <p>Đơn hàng</p>
-                  <h3>{currOrders} đơn</h3>
+                  <p>Đơn hàng</p><h3>{currOrders} đơn</h3>
                   <Trend curr={currOrders} prev={prevOrders} />
                 </div>
               </div>
 
-              {/* Daily Breakdown (week/month) */}
               {reportPeriod !== 'today' && Object.keys(byDay).length > 0 && (
                 <div className="day-breakdown">
                   <h3>Chi tiết theo ngày</h3>
-                  {Object.entries(byDay)
-                    .sort((a, b) => b[0].localeCompare(a[0]))
-                    .map(([day, data]) => (
-                      <div key={day} className="day-row">
-                        <span className="day-label">{day}</span>
-                        <span className="day-count">{data.count} ly</span>
-                        <span className="day-revenue">{formatPrice(data.revenue)}</span>
-                      </div>
-                    ))}
+                  {Object.entries(byDay).sort((a, b) => b[0].localeCompare(a[0])).map(([day, data]) => (
+                    <div key={day} className="day-row">
+                      <span className="day-label">{day}</span>
+                      <span className="day-count">{data.count} ly</span>
+                      <span className="day-revenue">{formatPrice(data.revenue)}</span>
+                    </div>
+                  ))}
                 </div>
               )}
 
-              {/* Transaction List (today only) */}
               {reportPeriod === 'today' && (
                 <div className="recent-orders">
                   <h3>Giao dịch ({periodOrders.length})</h3>
-                  {periodOrders.length === 0 ? (
-                    <p className="empty-state">Chưa có giao dịch nào</p>
-                  ) : (
+                  {periodOrders.length === 0 ? <p className="empty-state">Chưa có giao dịch nào</p> : (
                     periodOrders.map(order => (
                       <div key={order.id} className="transaction-card">
                         <div className="tx-header">
-                          <span className="tx-time">
-                            {new Date(order.timestamp).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}
-                          </span>
+                          <span className="tx-time">{new Date(order.timestamp).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}</span>
                           <div className="tx-header-right">
                             <span className="tx-total">{formatPrice(order.total)}</span>
-                            <button className="tx-delete-btn" onClick={() => deleteOrder(order.id)} title="Xóa">
-                              <Trash2 size={14} />
-                            </button>
+                            <button className="tx-delete-btn" onClick={() => deleteOrder(order)}><Trash2 size={14} /></button>
                           </div>
                         </div>
                         <div className="tx-items">
-                          {order.items.map((item, idx) => (
+                          {order.items?.map((item, idx) => (
                             <div key={idx} className="tx-item">
                               <span>{item.name}</span>
-                              {item.toppings?.length > 0 && (
-                                <span className="tx-toppings">+ {item.toppings.map(t => t.name).join(', ')}</span>
-                              )}
+                              {item.toppings?.length > 0 && <span className="tx-toppings">+ {item.toppings.map(t => t.name).join(', ')}</span>}
                               <span className="tx-item-price">{formatPrice(item.totalPrice)}</span>
                             </div>
                           ))}
@@ -795,223 +623,156 @@ export default function App() {
     );
   };
 
-  // ─────────────────────────────────────────────
-  // RENDER: MENU MANAGEMENT TAB
-  // ─────────────────────────────────────────────
-
-  // Form thêm/sửa MenuItem
+  // ──────────────────────────────────────────────
+  // RENDER: MENU FORMS (add/edit item, group, topping)
+  // ──────────────────────────────────────────────
   if (menuView === 'addItem' || menuView === 'editItem') {
-    const isEdit = menuView === 'editItem';
     return (
-      <div className="app-container">
-        <main className="main-content">
-          <div className="form-page">
-            <header className="header header-with-back">
-              <button className="back-btn" onClick={() => { setMenuView('list'); setEditingItem(null); setForm({ category: '', name: '', price: '', applicableToppingGroups: [] }); }}>
-                <X size={20} />
-              </button>
-              <h2>{isEdit ? 'Chỉnh sửa món' : 'Thêm món mới'}</h2>
-              <div style={{ width: 36 }} />
-            </header>
-            <div className="form-body">
-              <div className="form-group">
-                <label>Danh mục</label>
-                <input className="form-input" placeholder="VD: Coffee, Trà Trái Cây..."
-                  value={form.category} onChange={e => setForm(p => ({ ...p, category: e.target.value }))}
-                  list="cat-list" />
-                <datalist id="cat-list">{categories.map(c => <option key={c} value={c} />)}</datalist>
-              </div>
-              <div className="form-group">
-                <label>Tên món</label>
-                <input className="form-input" placeholder="VD: Matcha Latte - L"
-                  value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} />
-              </div>
-              <div className="form-group">
-                <label>Giá (VNĐ)</label>
-                <input className="form-input" type="number" placeholder="VD: 35000"
-                  value={form.price} onChange={e => setForm(p => ({ ...p, price: e.target.value }))} />
-              </div>
-
-              {/* Chọn nhóm topping */}
-              {toppingGroups.length > 0 && (
-                <div className="form-group">
-                  <label>Nhóm topping áp dụng</label>
-                  <p className="form-hint">Chỉ nhóm được tick mới hiện khi log món</p>
-                  <div className="topping-checklist">
-                    {toppingGroups.map(group => {
-                      const checked = (form.applicableToppingGroups || []).includes(group.id);
-                      return (
-                        <label key={group.id} className={`topping-check-item ${checked ? 'checked' : ''}`}>
-                          <input type="checkbox" checked={checked} onChange={() => {
-                            setForm(p => ({
-                              ...p,
-                              applicableToppingGroups: checked
-                                ? p.applicableToppingGroups.filter(id => id !== group.id)
-                                : [...p.applicableToppingGroups, group.id],
-                            }));
-                          }} />
-                          <div className="topping-check-info">
-                            <span className="topping-check-name">{group.name}</span>
-                            <span className="topping-check-sub">{group.items.map(t => t.name).join(', ') || 'Chưa có topping'}</span>
-                          </div>
-                        </label>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-
-              <button className="save-btn" onClick={saveMenuItem}>
-                <Check size={18} /> {isEdit ? 'Lưu thay đổi' : 'Thêm món'}
-              </button>
-            </div>
+      <div className="app-container"><main className="main-content"><div className="form-page">
+        <header className="header header-with-back">
+          <button className="back-btn" onClick={() => { setMenuView('list'); setEditingItem(null); setForm({ category: '', name: '', price: '', applicableToppingGroups: [] }); }}><X size={20} /></button>
+          <h2>{menuView === 'editItem' ? 'Chỉnh sửa món' : 'Thêm món mới'}</h2>
+          <div style={{ width: 36 }} />
+        </header>
+        <div className="form-body">
+          <div className="form-group"><label>Danh mục</label>
+            <input className="form-input" placeholder="VD: Coffee, Trà Trái Cây..." value={form.category} onChange={e => setForm(p => ({ ...p, category: e.target.value }))} list="cat-list" />
+            <datalist id="cat-list">{categories.map(c => <option key={c} value={c} />)}</datalist>
           </div>
-        </main>
-      </div>
+          <div className="form-group"><label>Tên món</label>
+            <input className="form-input" placeholder="VD: Matcha Latte - L" value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} />
+          </div>
+          <div className="form-group"><label>Giá (VNĐ)</label>
+            <input className="form-input" type="number" placeholder="VD: 35000" value={form.price} onChange={e => setForm(p => ({ ...p, price: e.target.value }))} />
+          </div>
+          {toppingGroups.length > 0 && (
+            <div className="form-group">
+              <label>Nhóm topping áp dụng</label>
+              <p className="form-hint">Chỉ nhóm được tick mới hiện khi log món</p>
+              <div className="topping-checklist">
+                {toppingGroups.map(group => {
+                  const checked = (form.applicableToppingGroups || []).includes(group.id);
+                  return (
+                    <label key={group.id} className={`topping-check-item ${checked ? 'checked' : ''}`}>
+                      <input type="checkbox" checked={checked} onChange={() => setForm(p => ({
+                        ...p, applicableToppingGroups: checked
+                          ? p.applicableToppingGroups.filter(id => id !== group.id)
+                          : [...p.applicableToppingGroups, group.id],
+                      }))} />
+                      <div className="topping-check-info">
+                        <span className="topping-check-name">{group.name}</span>
+                        <span className="topping-check-sub">{group.items.map(t => t.name).join(', ') || 'Chưa có topping'}</span>
+                      </div>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+          <button className="save-btn" onClick={saveMenuItem}><Check size={18} /> {menuView === 'editItem' ? 'Lưu thay đổi' : 'Thêm món'}</button>
+        </div>
+      </div></main></div>
     );
   }
 
-  // Form thêm nhóm topping
   if (menuView === 'addGroup' || menuView === 'editGroup') {
     return (
-      <div className="app-container">
-        <main className="main-content">
-          <div className="form-page">
-            <header className="header header-with-back">
-              <button className="back-btn" onClick={() => { setMenuView('list'); setEditingItem(null); setGroupForm({ name: '' }); }}>
-                <X size={20} />
-              </button>
-              <h2>{menuView === 'editGroup' ? 'Sửa nhóm' : 'Thêm nhóm topping'}</h2>
-              <div style={{ width: 36 }} />
-            </header>
-            <div className="form-body">
-              <div className="form-group">
-                <label>Tên nhóm</label>
-                <input className="form-input" placeholder="VD: Trân Châu, Thạch, Kem..."
-                  value={groupForm.name} onChange={e => setGroupForm({ name: e.target.value })} />
-              </div>
-              <button className="save-btn" onClick={saveGroup}>
-                <Check size={18} /> {menuView === 'editGroup' ? 'Lưu' : 'Tạo nhóm'}
-              </button>
-            </div>
+      <div className="app-container"><main className="main-content"><div className="form-page">
+        <header className="header header-with-back">
+          <button className="back-btn" onClick={() => { setMenuView('list'); setEditingItem(null); setGroupForm({ name: '' }); }}><X size={20} /></button>
+          <h2>{menuView === 'editGroup' ? 'Sửa nhóm' : 'Thêm nhóm topping'}</h2>
+          <div style={{ width: 36 }} />
+        </header>
+        <div className="form-body">
+          <div className="form-group"><label>Tên nhóm</label>
+            <input className="form-input" placeholder="VD: Trân Châu, Thạch, Kem..." value={groupForm.name} onChange={e => setGroupForm({ name: e.target.value })} />
           </div>
-        </main>
-      </div>
+          <button className="save-btn" onClick={saveGroup}><Check size={18} /> {menuView === 'editGroup' ? 'Lưu' : 'Tạo nhóm'}</button>
+        </div>
+      </div></main></div>
     );
   }
 
-  // Form thêm topping vào nhóm
   if (menuView === 'addTopping' || menuView === 'editTopping') {
     const isEdit = menuView === 'editTopping';
     return (
-      <div className="app-container">
-        <main className="main-content">
-          <div className="form-page">
-            <header className="header header-with-back">
-              <button className="back-btn" onClick={() => { setMenuView('list'); setEditingItem(null); setToppingForm({ name: '', price: '', groupId: '' }); }}>
-                <X size={20} />
-              </button>
-              <h2>{isEdit ? 'Sửa topping' : 'Thêm topping'}</h2>
-              <div style={{ width: 36 }} />
-            </header>
-            <div className="form-body">
-              {!isEdit && (
-                <div className="form-group">
-                  <label>Nhóm</label>
-                  <select className="form-input" value={toppingForm.groupId}
-                    onChange={e => setToppingForm(p => ({ ...p, groupId: e.target.value }))}>
-                    <option value="">-- Chọn nhóm --</option>
-                    {toppingGroups.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
-                  </select>
-                </div>
-              )}
-              <div className="form-group">
-                <label>Tên topping</label>
-                <input className="form-input" placeholder="VD: Trân Châu Trắng"
-                  value={toppingForm.name} onChange={e => setToppingForm(p => ({ ...p, name: e.target.value }))} />
-              </div>
-              <div className="form-group">
-                <label>Giá (VNĐ)</label>
-                <input className="form-input" type="number" placeholder="VD: 5000"
-                  value={toppingForm.price} onChange={e => setToppingForm(p => ({ ...p, price: e.target.value }))} />
-              </div>
-              <button className="save-btn" onClick={saveToppingToGroup}>
-                <Check size={18} /> {isEdit ? 'Lưu' : 'Thêm vào nhóm'}
-              </button>
+      <div className="app-container"><main className="main-content"><div className="form-page">
+        <header className="header header-with-back">
+          <button className="back-btn" onClick={() => { setMenuView('list'); setEditingItem(null); setToppingForm({ name: '', price: '', groupId: '' }); }}><X size={20} /></button>
+          <h2>{isEdit ? 'Sửa topping' : 'Thêm topping'}</h2>
+          <div style={{ width: 36 }} />
+        </header>
+        <div className="form-body">
+          {!isEdit && (
+            <div className="form-group"><label>Nhóm</label>
+              <select className="form-input" value={toppingForm.groupId} onChange={e => setToppingForm(p => ({ ...p, groupId: e.target.value }))}>
+                <option value="">-- Chọn nhóm --</option>
+                {toppingGroups.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
+              </select>
             </div>
+          )}
+          <div className="form-group"><label>Tên topping</label>
+            <input className="form-input" placeholder="VD: Trân Châu Trắng" value={toppingForm.name} onChange={e => setToppingForm(p => ({ ...p, name: e.target.value }))} />
           </div>
-        </main>
-      </div>
+          <div className="form-group"><label>Giá (VNĐ)</label>
+            <input className="form-input" type="number" placeholder="VD: 5000" value={toppingForm.price} onChange={e => setToppingForm(p => ({ ...p, price: e.target.value }))} />
+          </div>
+          <button className="save-btn" onClick={saveToppingToGroup}><Check size={18} /> {isEdit ? 'Lưu' : 'Thêm vào nhóm'}</button>
+        </div>
+      </div></main></div>
     );
   }
 
-  // Main Menu Management Tab
+  // ──────────────────────────────────────────────
+  // RENDER: MENU MANAGEMENT (list)
+  // ──────────────────────────────────────────────
   const renderMenuTab = () => (
     <div className="menu-mgmt-tab">
       <header className="header"><h2>Quản lý Menu</h2></header>
-
       <div className="sub-tabs">
-        <button className={`sub-tab ${menuTab === 'items' ? 'active' : ''}`} onClick={() => setMenuTab('items')}>
-          Thực đơn ({menuItems.length})
-        </button>
-        <button className={`sub-tab ${menuTab === 'toppings' ? 'active' : ''}`} onClick={() => setMenuTab('toppings')}>
-          Nhóm Topping ({toppingGroups.length})
-        </button>
+        <button className={`sub-tab ${menuTab === 'items' ? 'active' : ''}`} onClick={() => setMenuTab('items')}>Thực đơn ({menuItems.length})</button>
+        <button className={`sub-tab ${menuTab === 'toppings' ? 'active' : ''}`} onClick={() => setMenuTab('toppings')}>Nhóm Topping ({toppingGroups.length})</button>
       </div>
 
       {menuTab === 'items' && (
         <div className="mgmt-list">
-          <button className="add-new-btn" onClick={() => setMenuView('addItem')}>
-            <Plus size={18} /> Thêm món mới
-          </button>
-          {categories.map(cat => {
-            const items = menuItems.filter(i => i.category === cat);
-            return (
-              <div key={cat} className="mgmt-category">
-                <div className="mgmt-cat-header">
-                  <span className="mgmt-cat-name">{cat}</span>
-                  <span className="mgmt-cat-count">{items.length} món</span>
-                </div>
-                {items.map(item => (
-                  <div key={item.id} className="mgmt-item">
-                    <div className="mgmt-item-info">
-                      <p className="mgmt-item-name">{item.name}</p>
-                      <p className="mgmt-item-price">{formatPrice(item.price)}</p>
-                      {item.applicableToppingGroups?.length > 0 && (
-                        <p className="mgmt-item-groups">
-                          {item.applicableToppingGroups.map(gid => toppingGroups.find(g => g.id === gid)?.name).filter(Boolean).join(', ')}
-                        </p>
-                      )}
-                    </div>
-                    <div className="mgmt-item-actions">
-                      <button className="action-btn edit" onClick={() => startEditItem(item)}><Edit2 size={15} /></button>
-                      <button className="action-btn delete" onClick={() => deleteMenuItem(item.id)}><Trash2 size={15} /></button>
-                    </div>
-                  </div>
-                ))}
+          <button className="add-new-btn" onClick={() => setMenuView('addItem')}><Plus size={18} /> Thêm món mới</button>
+          {categories.map(cat => (
+            <div key={cat} className="mgmt-category">
+              <div className="mgmt-cat-header">
+                <span className="mgmt-cat-name">{cat}</span>
+                <span className="mgmt-cat-count">{menuItems.filter(i => i.category === cat).length} món</span>
               </div>
-            );
-          })}
+              {menuItems.filter(i => i.category === cat).map(item => (
+                <div key={item.id} className="mgmt-item">
+                  <div className="mgmt-item-info">
+                    <p className="mgmt-item-name">{item.name}</p>
+                    <p className="mgmt-item-price">{formatPrice(item.price)}</p>
+                    {item.applicableToppingGroups?.length > 0 && (
+                      <p className="mgmt-item-groups">
+                        {item.applicableToppingGroups.map(gid => toppingGroups.find(g => g.id === gid)?.name).filter(Boolean).join(', ')}
+                      </p>
+                    )}
+                  </div>
+                  <div className="mgmt-item-actions">
+                    <button className="action-btn edit" onClick={() => startEditItem(item)}><Edit2 size={15} /></button>
+                    <button className="action-btn delete" onClick={() => deleteMenuItem(item.id)}><Trash2 size={15} /></button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ))}
         </div>
       )}
 
       {menuTab === 'toppings' && (
         <div className="mgmt-list">
-          <button className="add-new-btn" onClick={() => setMenuView('addGroup')}>
-            <FolderPlus size={18} /> Thêm nhóm topping
-          </button>
-
-          {toppingGroups.length === 0 && (
-            <p className="empty-state">Chưa có nhóm topping nào. Tạo nhóm trước nhé!</p>
-          )}
-
+          <button className="add-new-btn" onClick={() => setMenuView('addGroup')}><FolderPlus size={18} /> Thêm nhóm topping</button>
+          {toppingGroups.length === 0 && <p className="empty-state">Chưa có nhóm topping nào.</p>}
           {toppingGroups.map(group => (
             <div key={group.id} className="topping-group-card">
               <div className="topping-group-header">
-                <button
-                  className="group-toggle"
-                  onClick={() => setExpandedGroups(p => ({ ...p, [group.id]: !p[group.id] }))}
-                >
+                <button className="group-toggle" onClick={() => setExpandedGroups(p => ({ ...p, [group.id]: !p[group.id] }))}>
                   <span className="group-name">📦 {group.name}</span>
                   <span className="group-meta">
                     <span className="group-count">{group.items.length} topping</span>
@@ -1019,15 +780,10 @@ export default function App() {
                   </span>
                 </button>
                 <div className="group-actions">
-                  <button className="action-btn edit" onClick={() => {
-                    setEditingItem({ ...group, type: 'group' });
-                    setGroupForm({ name: group.name });
-                    setMenuView('editGroup');
-                  }}><Edit2 size={14} /></button>
+                  <button className="action-btn edit" onClick={() => { setEditingItem({ ...group, type: 'group' }); setGroupForm({ name: group.name }); setMenuView('editGroup'); }}><Edit2 size={14} /></button>
                   <button className="action-btn delete" onClick={() => deleteGroup(group.id)}><Trash2 size={14} /></button>
                 </div>
               </div>
-
               {expandedGroups[group.id] && (
                 <div className="group-topping-list">
                   {group.items.map(t => (
@@ -1037,19 +793,12 @@ export default function App() {
                         <p className="mgmt-item-price">{formatPrice(t.price)}</p>
                       </div>
                       <div className="mgmt-item-actions">
-                        <button className="action-btn edit" onClick={() => {
-                          setEditingItem({ ...t, type: 'topping', groupId: group.id });
-                          setToppingForm({ name: t.name, price: String(t.price), groupId: group.id });
-                          setMenuView('editTopping');
-                        }}><Edit2 size={15} /></button>
+                        <button className="action-btn edit" onClick={() => { setEditingItem({ ...t, type: 'topping', groupId: group.id }); setToppingForm({ name: t.name, price: String(t.price), groupId: group.id }); setMenuView('editTopping'); }}><Edit2 size={15} /></button>
                         <button className="action-btn delete" onClick={() => deleteToppingFromGroup(group.id, t.id)}><Trash2 size={15} /></button>
                       </div>
                     </div>
                   ))}
-                  <button className="add-topping-to-group-btn" onClick={() => {
-                    setToppingForm({ name: '', price: '', groupId: group.id });
-                    setMenuView('addTopping');
-                  }}>
+                  <button className="add-topping-to-group-btn" onClick={() => { setToppingForm({ name: '', price: '', groupId: group.id }); setMenuView('addTopping'); }}>
                     <Plus size={14} /> Thêm topping vào nhóm
                   </button>
                 </div>
@@ -1061,9 +810,9 @@ export default function App() {
     </div>
   );
 
-  // ─────────────────────────────────────────────
-  // ROOT RENDER
-  // ─────────────────────────────────────────────
+  // ──────────────────────────────────────────────
+  // ROOT
+  // ──────────────────────────────────────────────
   return (
     <div className="app-container">
       <main className="main-content">
@@ -1072,15 +821,9 @@ export default function App() {
         {activeTab === 'menu' && renderMenuTab()}
       </main>
       <nav className="bottom-nav">
-        <button className={`nav-item ${activeTab === 'order' ? 'active' : ''}`} onClick={() => setActiveTab('order')}>
-          <Home size={24} /><span>Bán hàng</span>
-        </button>
-        <button className={`nav-item ${activeTab === 'report' ? 'active' : ''}`} onClick={() => setActiveTab('report')}>
-          <BarChart3 size={24} /><span>Báo cáo</span>
-        </button>
-        <button className={`nav-item ${activeTab === 'menu' ? 'active' : ''}`} onClick={() => setActiveTab('menu')}>
-          <Settings size={24} /><span>Menu</span>
-        </button>
+        <button className={`nav-item ${activeTab === 'order' ? 'active' : ''}`} onClick={() => setActiveTab('order')}><Home size={24} /><span>Bán hàng</span></button>
+        <button className={`nav-item ${activeTab === 'report' ? 'active' : ''}`} onClick={() => setActiveTab('report')}><BarChart3 size={24} /><span>Báo cáo</span></button>
+        <button className={`nav-item ${activeTab === 'menu' ? 'active' : ''}`} onClick={() => setActiveTab('menu')}><Settings size={24} /><span>Menu</span></button>
       </nav>
     </div>
   );
