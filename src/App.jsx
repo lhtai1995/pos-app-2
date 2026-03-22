@@ -95,6 +95,7 @@ export default function App() {
   const [form, setForm] = useState({ category: '', name: '', price: '' });
   const [toppingForm, setToppingForm] = useState({ name: '', price: '' });
   const [expandedCategories, setExpandedCategories] = useState({});
+  const [isRefreshingOrders, setIsRefreshingOrders] = useState(false);
 
   // ── LOAD DATA ──
   useEffect(() => {
@@ -198,6 +199,27 @@ export default function App() {
     initData();
   }, []);
 
+  // ── FETCH ORDERS (always fresh from Sheet) ──
+  const fetchTodayOrders = async (silent = false) => {
+    if (!silent) setIsRefreshingOrders(true);
+    try {
+      const gsOrders = await gsGet('getTodayOrders');
+      if (gsOrders && !gsOrders.error) {
+        setOrders(gsOrders);
+      }
+    } catch (e) {
+      console.error('Fetch orders failed', e);
+    }
+    if (!silent) setIsRefreshingOrders(false);
+  };
+
+  // Fetch orders khi switch sang tab Báo cáo + auto-refresh 60s
+  useEffect(() => {
+    if (activeTab !== 'report') return;
+    fetchTodayOrders();
+    const interval = setInterval(() => fetchTodayOrders(true), 60000);
+    return () => clearInterval(interval);
+  }, [activeTab]);
   // ── ORDER LOGIC ──
   const handleAddItemToCurrentOrder = (item) => {
     setSelectedItemToAdd(item);
@@ -556,14 +578,25 @@ export default function App() {
   const renderReportTab = () => (
     <div className="report-tab">
       <header className="header">
-        <h2>Báo cáo Hôm nay</h2>
-        <p className="header-sub">
-          {new Date().toLocaleDateString('vi-VN', {
-            weekday: 'long',
-            day: 'numeric',
-            month: 'long',
-          })}
-        </p>
+        <div className="header-row">
+          <div>
+            <h2>Báo cáo Hôm nay</h2>
+            <p className="header-sub">
+              {new Date().toLocaleDateString('vi-VN', {
+                weekday: 'long',
+                day: 'numeric',
+                month: 'long',
+              })}
+            </p>
+          </div>
+          <button
+            className={`refresh-btn ${isRefreshingOrders ? 'spinning' : ''}`}
+            onClick={() => fetchTodayOrders()}
+            title="Làm mới"
+          >
+            <RefreshCw size={16} />
+          </button>
+        </div>
       </header>
 
       <div className="report-body">

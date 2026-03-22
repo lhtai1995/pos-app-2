@@ -7,14 +7,15 @@ const SHEET_ID = SpreadsheetApp.getActiveSpreadsheet().getId();
 
 function doGet(e) {
   const action = e.parameter.action;
-  
+
   try {
     let result;
     if (action === 'getMenu') result = getMenu();
     else if (action === 'getToppings') result = getToppings();
     else if (action === 'getOrders') result = getOrders();
+    else if (action === 'getTodayOrders') result = getTodayOrders();
     else result = { error: 'Unknown action' };
-    
+
     return jsonResponse(result);
   } catch (err) {
     return jsonResponse({ error: err.message });
@@ -24,7 +25,7 @@ function doGet(e) {
 function doPost(e) {
   const data = JSON.parse(e.postData.contents);
   const action = data.action;
-  
+
   try {
     let result;
     if (action === 'addOrder') result = addOrder(data.payload);
@@ -38,7 +39,7 @@ function doPost(e) {
     else if (action === 'syncMenu') result = syncMenu(data.payload);
     else if (action === 'syncToppings') result = syncToppings(data.payload);
     else result = { error: 'Unknown action' };
-    
+
     return jsonResponse(result);
   } catch (err) {
     return jsonResponse({ error: err.message });
@@ -68,7 +69,7 @@ function getMenu() {
   const sheet = getSheet('Menu');
   const data = sheet.getDataRange().getValues();
   if (data.length <= 1) return [];
-  
+
   const headers = data[0];
   return data.slice(1)
     .filter(row => row[3] !== false && row[3] !== 'FALSE') // Active filter
@@ -90,7 +91,7 @@ function addMenuItem(payload) {
 function updateMenuItem(payload) {
   const sheet = getSheet('Menu');
   const data = sheet.getDataRange().getValues();
-  
+
   for (let i = 1; i < data.length; i++) {
     // Match by name + category (original values)
     if (data[i][1] === payload.originalName && data[i][0] === payload.originalCategory) {
@@ -106,7 +107,7 @@ function updateMenuItem(payload) {
 function deleteMenuItem(payload) {
   const sheet = getSheet('Menu');
   const data = sheet.getDataRange().getValues();
-  
+
   for (let i = 1; i < data.length; i++) {
     if (data[i][1] === payload.name && data[i][0] === payload.category) {
       sheet.deleteRow(i + 1);
@@ -140,7 +141,7 @@ function getToppings() {
   const sheet = getSheet('Toppings');
   const data = sheet.getDataRange().getValues();
   if (data.length <= 1) return [];
-  
+
   return data.slice(1)
     .filter(row => row[2] !== false && row[2] !== 'FALSE')
     .map((row, idx) => ({
@@ -160,7 +161,7 @@ function addTopping(payload) {
 function updateTopping(payload) {
   const sheet = getSheet('Toppings');
   const data = sheet.getDataRange().getValues();
-  
+
   for (let i = 1; i < data.length; i++) {
     if (data[i][0] === payload.originalName) {
       sheet.getRange(i + 1, 1, 1, 3).setValues([
@@ -175,7 +176,7 @@ function updateTopping(payload) {
 function deleteTopping(payload) {
   const sheet = getSheet('Toppings');
   const data = sheet.getDataRange().getValues();
-  
+
   for (let i = 1; i < data.length; i++) {
     if (data[i][0] === payload.name) {
       sheet.deleteRow(i + 1);
@@ -205,13 +206,36 @@ function getOrders() {
   const sheet = getSheet('Orders');
   const data = sheet.getDataRange().getValues();
   if (data.length <= 1) return [];
-  
+
   return data.slice(1).map(row => ({
     id: row[0],
     timestamp: row[1],
     items: JSON.parse(row[2] || '[]'),
     total: Number(row[3]),
   }));
+}
+
+// Chỉ lấy orders hôm nay — tối ưu cho multi-device POS
+function getTodayOrders() {
+  const sheet = getSheet('Orders');
+  const data = sheet.getDataRange().getValues();
+  if (data.length <= 1) return [];
+
+  const today = new Date();
+  const todayStr = today.toDateString();
+
+  return data.slice(1)
+    .filter(row => {
+      if (!row[0]) return false;
+      const orderDate = new Date(row[1]);
+      return orderDate.toDateString() === todayStr;
+    })
+    .map(row => ({
+      id: row[0],
+      timestamp: row[1],
+      items: JSON.parse(row[2] || '[]'),
+      total: Number(row[3]),
+    }));
 }
 
 function addOrder(payload) {
