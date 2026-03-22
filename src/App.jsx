@@ -28,6 +28,34 @@ const STORAGE_KEYS = {
   MENU: 'dol_menu_items',
   TOPPING_GROUPS: 'dol_topping_groups',
   ORDERS: 'dol_orders',
+  REPORT_CACHE: 'dol_report_cache',
+};
+
+const REPORT_TTL = 5 * 60 * 1000; // 5 phút
+
+const loadReportCache = (period) => {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEYS.REPORT_CACHE);
+    if (!raw) return null;
+    const cache = JSON.parse(raw);
+    const entry = cache[period];
+    if (!entry) return null;
+    if (Date.now() - entry.ts > REPORT_TTL) return null; // hết hạn
+    return entry.data;
+  } catch { return null; }
+};
+
+const saveReportCache = (period, data) => {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEYS.REPORT_CACHE);
+    const cache = raw ? JSON.parse(raw) : {};
+    cache[period] = { data, ts: Date.now() };
+    localStorage.setItem(STORAGE_KEYS.REPORT_CACHE, JSON.stringify(cache));
+  } catch {}
+};
+
+const invalidateReportCache = () => {
+  localStorage.removeItem(STORAGE_KEYS.REPORT_CACHE);
 };
 
 // ──────────────────────────────────────────────
@@ -69,6 +97,7 @@ export default function App() {
   const [periodOrders, setPeriodOrders] = useState([]);
   const [prevPeriodOrders, setPrevPeriodOrders] = useState([]);
   const [isLoadingPeriod, setIsLoadingPeriod] = useState(false);
+  const [cachedReport, setCachedReport] = useState(null); // { curr: {revenue,count,orders,byDay,rawOrders}, prev: {...} }
 
   // ── Menu management states ──
   const [menuView, setMenuView] = useState('list');
@@ -229,45 +258,36 @@ export default function App() {
     }
   };
 
-  const fetchPeriodData = async (period) => {
-    if (period === 'today') {
-      // Dùng lại orders đã có
-      const todayList = orders.filter(o => new Date(o.timestamp).toDateString() === new Date().toDateString());
-      setPeriodOrders(todayList);
-      // Hôm qua
-      const range = getPeriodRange('today');
-      try {
-        setIsLoadingPeriod(true);
-        const prev = await gsGet('getOrdersByDateRange', {
-          start: range.prevStart.toISOString(),
-          end: range.prevEnd.toISOString(),
-        });
-        setPrevPeriodOrders(prev?.error ? [] : prev);
-      } catch { setPrevPeriodOrders([]); }
-      setIsLoadingPeriod(false);
+  const fetchPeriodData = async (period, forceRefresh = false) => {
+    // Bước 1: Show cache ngay lập tức nếu có
+    const cached = loadReportCache(period);
+    if (cached && !forceRefresh) {
+      setPeriodOrders(cached.curr.rawOrders || []);
+      setPrevPeriodOrders([]);
+      // Inject aggregated data vào state — dùng ref
+      setCachedReport(cached);
+      // Vẫn refresh ngầm để update data mới nhất
+      setTimeout(() => fetchPeriodData(period, true), 0);
       return;
     }
-    const range = getPeriodRange(period);
-    setIsLoadingPeriod(true);
+
+    // Bước 2: Fetch từ Sheet bằng endpoint đơn
+    setIsLoadingPeriod(!cached); // Chỉ show loading nếu không có cache
     try {
-      const [curr, prev] = await Promise.all([
-        gsGet('getOrdersByDateRange', { start: range.start.toISOString(), end: range.end.toISOString() }),
-        gsGet('getOrdersByDateRange', { start: range.prevStart.toISOString(), end: range.prevEnd.toISOString() }),
-      ]);
-      setPeriodOrders(curr?.error ? [] : curr);
-      setPrevPeriodOrders(prev?.error ? [] : prev);
-    } catch {
-      setPeriodOrders([]);
-      setPrevPeriodOrders([]);
-    }
+      const data = await gsGet('getReportData', { period });
+      if (!data?.error) {
+        saveReportCache(period, data);
+        setCachedReport(data);
+        setPeriodOrders(data.curr?.rawOrders || []);
+      }
+    } catch {}
     setIsLoadingPeriod(false);
   };
 
-  // Fetch khi đổi period hoặc mở tab báo cáo
   useEffect(() => {
     if (activeTab !== 'report') return;
     fetchPeriodData(reportPeriod);
-  }, [activeTab, reportPeriod, orders]);
+  }, [activeTab, reportPeriod]);
 
   // ─────────────────────────────────────────────
   // ORDER LOGIC
@@ -320,6 +340,7 @@ export default function App() {
     setOrders(prev => [newOrder, ...prev]);
     saveToStorage(STORAGE_KEYS.ORDERS, [newOrder, ...orders]);
     setCurrentOrder([]);
+    invalidateReportCache(); // Xóa cache báo cáo khi có đơn mới
     try {
       setCloudStatus('syncing');
       await gsPost('addOrder', newOrder);
@@ -332,6 +353,7 @@ export default function App() {
     const updated = orders.filter(o => o.id !== orderId);
     setOrders(updated);
     saveToStorage(STORAGE_KEYS.ORDERS, updated);
+    invalidateReportCache(); // Xóa cache khi xóa đơn
     try {
       setCloudStatus('syncing');
       await gsPost('deleteOrder', { id: orderId });
@@ -635,19 +657,24 @@ export default function App() {
   // ─────────────────────────────────────────────
   const renderReportTab = () => {
     const range = getPeriodRange(reportPeriod);
-    const currRevenue = periodOrders.reduce((s, o) => s + o.total, 0);
-    const prevRevenue = prevPeriodOrders.reduce((s, o) => s + o.total, 0);
-    const currCount = periodOrders.reduce((s, o) => s + (o.items?.length || 0), 0);
-    const prevCount = prevPeriodOrders.reduce((s, o) => s + (o.items?.length || 0), 0);
-    const currOrders = periodOrders.length;
-    const prevOrders = prevPeriodOrders.length;
+
+    // Đọc từ cachedReport (pre-aggregated từ server) — nhanh hơn tự reduce
+    const curr = cachedReport?.curr || {};
+    const prev = cachedReport?.prev || {};
+    const currRevenue = curr.revenue ?? periodOrders.reduce((s, o) => s + o.total, 0);
+    const prevRevenue = prev.revenue ?? 0;
+    const currCount   = curr.count   ?? periodOrders.reduce((s, o) => s + (o.items?.length || 0), 0);
+    const prevCount   = prev.count   ?? 0;
+    const currOrders  = curr.orders  ?? periodOrders.length;
+    const prevOrders  = prev.orders  ?? 0;
+    const byDay       = curr.byDay   ?? {};
 
     const pct = (curr, prev) => {
       if (!prev) return curr > 0 ? 100 : 0;
       return Math.round(((curr - prev) / prev) * 100);
     };
 
-    const Trend = ({ curr, prev, prefix = '' }) => {
+    const Trend = ({ curr, prev }) => {
       const p = pct(curr, prev);
       if (prev === 0 && curr === 0) return null;
       const up = p >= 0;
@@ -657,15 +684,6 @@ export default function App() {
         </span>
       );
     };
-
-    // Group period orders by day (for week/month view)
-    const byDay = periodOrders.reduce((acc, o) => {
-      const day = new Date(o.timestamp).toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' });
-      if (!acc[day]) acc[day] = { revenue: 0, count: 0 };
-      acc[day].revenue += o.total;
-      acc[day].count += o.items?.length || 0;
-      return acc;
-    }, {});
 
     return (
       <div className="report-tab">

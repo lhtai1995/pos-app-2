@@ -17,6 +17,7 @@ function doGet(e) {
     else if (action === 'getToppingGroups') result = getToppingGroups();
     else if (action === 'getAllData') result = getAllData();
     else if (action === 'getOrdersByDateRange') result = getOrdersByDateRange(e.parameter.start, e.parameter.end);
+    else if (action === 'getReportData') result = getReportData(e.parameter.period);
     else result = { error: 'Unknown action' };
 
     return jsonResponse(result);
@@ -355,4 +356,71 @@ function getOrdersByDateRange(startISO, endISO) {
       items: (() => { try { return JSON.parse(row[2] || '[]'); } catch { return []; } })(),
       total: Number(row[3]) || 0,
     }));
+}
+
+// ── REPORT DATA (Single endpoint, curr + prev aggregated) ────────
+function getReportData(period) {
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const todayEnd = new Date(today.getTime() + 86400000 - 1);
+
+  let currStart, currEnd, prevStart, prevEnd;
+
+  if (period === 'today') {
+    currStart = today; currEnd = todayEnd;
+    prevStart = new Date(today.getTime() - 86400000);
+    prevEnd   = new Date(today.getTime() - 1);
+  } else if (period === 'week') {
+    const day = today.getDay() || 7;
+    const weekStart = new Date(today.getTime() - (day - 1) * 86400000);
+    currStart = weekStart; currEnd = todayEnd;
+    prevStart = new Date(weekStart.getTime() - 7 * 86400000);
+    prevEnd   = new Date(weekStart.getTime() - 1);
+  } else if (period === 'month') {
+    currStart = new Date(now.getFullYear(), now.getMonth(), 1); currEnd = todayEnd;
+    prevStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    prevEnd   = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59);
+  } else {
+    return { error: 'Invalid period' };
+  }
+
+  const sheet = getSheet('Orders');
+  const data = sheet.getDataRange().getValues();
+
+  const currRaw = [], prevRaw = [];
+  data.slice(1).forEach(row => {
+    if (!row[0] || !row[1]) return;
+    const d = new Date(row[1]);
+    const order = {
+      id: String(row[0]),
+      timestamp: String(row[1]),
+      items: (() => { try { return JSON.parse(row[2] || '[]'); } catch { return []; } })(),
+      total: Number(row[3]) || 0,
+    };
+    if (d >= currStart && d <= currEnd) currRaw.push(order);
+    else if (d >= prevStart && d <= prevEnd) prevRaw.push(order);
+  });
+
+  const aggregate = (orders, includeRaw) => {
+    const byDay = {};
+    orders.forEach(o => {
+      const d = new Date(o.timestamp);
+      const key = Utilities.formatDate(d, 'Asia/Ho_Chi_Minh', 'dd/MM');
+      if (!byDay[key]) byDay[key] = { revenue: 0, count: 0 };
+      byDay[key].revenue += o.total;
+      byDay[key].count += o.items.length;
+    });
+    return {
+      revenue: orders.reduce((s, o) => s + o.total, 0),
+      count:   orders.reduce((s, o) => s + o.items.length, 0),
+      orders:  orders.length,
+      byDay,
+      rawOrders: includeRaw ? orders : [], // Ch\u1ec9 g\u1eedi raw cho today
+    };
+  };
+
+  return {
+    curr: aggregate(currRaw, period === 'today'),
+    prev: aggregate(prevRaw, false),
+  };
 }
