@@ -14,6 +14,7 @@ function doGet(e) {
     else if (action === 'getToppings') result = getToppings();
     else if (action === 'getOrders') result = getOrders();
     else if (action === 'getTodayOrders') result = getTodayOrders();
+    else if (action === 'getToppingGroups') result = getToppingGroups();
     else result = { error: 'Unknown action' };
 
     return jsonResponse(result);
@@ -38,6 +39,7 @@ function doPost(e) {
     else if (action === 'deleteTopping') result = deleteTopping(data.payload);
     else if (action === 'syncMenu') result = syncMenu(data.payload);
     else if (action === 'syncToppings') result = syncToppings(data.payload);
+    else if (action === 'syncToppingGroups') result = syncToppingGroups(data.payload);
     else result = { error: 'Unknown action' };
 
     return jsonResponse(result);
@@ -279,4 +281,42 @@ function deleteOrder(payload) {
     }
   }
   return { error: 'Order not found' };
+}
+
+// ── TOPPING GROUPS ────────────────────────────────
+// Sheet "ToppingGroups": Group ID | Group Name | Items JSON
+
+function getToppingGroups() {
+  const sheet = getSheet('ToppingGroups');
+  const data = sheet.getDataRange().getValues();
+  if (data.length <= 1) return [];
+
+  return data.slice(1)
+    .filter(row => row[0])
+    .map(row => ({
+      id: String(row[0]),
+      name: String(row[1]),
+      items: (() => { try { return JSON.parse(row[2] || '[]'); } catch { return []; } })(),
+    }));
+}
+
+// Sync toàn bộ groups (ghi đè) — gọi mỗi khi có thay đổi nhóm/topping
+function syncToppingGroups(groups) {
+  const sheet = getSheet('ToppingGroups');
+  // Xóa data cũ (giữ header)
+  const lastRow = sheet.getLastRow();
+  if (lastRow > 1) sheet.deleteRows(2, lastRow - 1);
+  // Tạo header nếu chưa có
+  if (sheet.getLastRow() === 0) {
+    sheet.appendRow(['Group ID', 'Group Name', 'Items JSON']);
+  }
+  // Ghi từng nhóm
+  groups.forEach(group => {
+    sheet.appendRow([
+      group.id,
+      group.name,
+      JSON.stringify(group.items || []),
+    ]);
+  });
+  return { success: true, count: groups.length };
 }

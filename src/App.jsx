@@ -106,21 +106,30 @@ export default function App() {
         }
 
         // ── Topping Groups ──
-        // Try load from localStorage first (groups are managed locally + sheet backup)
-        const savedGroups = loadFromStorage(STORAGE_KEYS.TOPPING_GROUPS);
-        if (savedGroups?.length > 0) {
-          setToppingGroups(savedGroups);
+        // Load from Sheet first, fallback to localStorage
+        const gsGroups = await gsGet('getToppingGroups');
+        if (gsGroups?.length > 0 && !gsGroups.error) {
+          setToppingGroups(gsGroups);
+          saveToStorage(STORAGE_KEYS.TOPPING_GROUPS, gsGroups);
         } else {
-          // Try to migrate old flat toppings into 1 default group
-          const gsToppings = await gsGet('getToppings');
-          if (gsToppings?.length > 0) {
-            const defaultGroup = {
-              id: generateId(), name: 'Topping',
-              items: gsToppings.map(t => ({ id: generateId(), name: t.name, price: Number(t.price) })),
-            };
-            const groups = [defaultGroup];
-            setToppingGroups(groups);
-            saveToStorage(STORAGE_KEYS.TOPPING_GROUPS, groups);
+          const savedGroups = loadFromStorage(STORAGE_KEYS.TOPPING_GROUPS);
+          if (savedGroups?.length > 0) {
+            setToppingGroups(savedGroups);
+            // Sync lên Sheet
+            await gsPost('syncToppingGroups', savedGroups);
+          } else {
+            // Migrate flat toppings cũ
+            const gsToppings = await gsGet('getToppings');
+            if (gsToppings?.length > 0) {
+              const defaultGroup = {
+                id: generateId(), name: 'Topping',
+                items: gsToppings.map(t => ({ id: generateId(), name: t.name, price: Number(t.price) })),
+              };
+              const groups = [defaultGroup];
+              setToppingGroups(groups);
+              saveToStorage(STORAGE_KEYS.TOPPING_GROUPS, groups);
+              await gsPost('syncToppingGroups', groups);
+            }
           }
         }
 
@@ -277,9 +286,17 @@ export default function App() {
     setMenuView('editItem');
   };
 
-  // ─────────────────────────────────────────────
-  // TOPPING GROUP CRUD
-  // ─────────────────────────────────────────────
+  // Helper: lưu groups và sync lên Sheet
+  const saveGroups = async (updated) => {
+    setToppingGroups(updated);
+    saveToStorage(STORAGE_KEYS.TOPPING_GROUPS, updated);
+    try {
+      setCloudStatus('syncing');
+      await gsPost('syncToppingGroups', updated);
+      setCloudStatus('ok');
+    } catch { setCloudStatus('error'); }
+  };
+
   const saveGroup = () => {
     if (!groupForm.name.trim()) return;
     let updated;
@@ -288,8 +305,7 @@ export default function App() {
     } else {
       updated = [...toppingGroups, { id: generateId(), name: groupForm.name.trim(), items: [] }];
     }
-    setToppingGroups(updated);
-    saveToStorage(STORAGE_KEYS.TOPPING_GROUPS, updated);
+    saveGroups(updated);
     setGroupForm({ name: '' });
     setEditingItem(null);
     setMenuView('list');
@@ -297,9 +313,7 @@ export default function App() {
 
   const deleteGroup = (groupId) => {
     if (!window.confirm('Xóa nhóm topping này?')) return;
-    const updated = toppingGroups.filter(g => g.id !== groupId);
-    setToppingGroups(updated);
-    saveToStorage(STORAGE_KEYS.TOPPING_GROUPS, updated);
+    saveGroups(toppingGroups.filter(g => g.id !== groupId));
   };
 
   const saveToppingToGroup = () => {
@@ -318,19 +332,16 @@ export default function App() {
           : g
       );
     }
-    setToppingGroups(updated);
-    saveToStorage(STORAGE_KEYS.TOPPING_GROUPS, updated);
+    saveGroups(updated);
     setToppingForm({ name: '', price: '', groupId: '' });
     setEditingItem(null);
     setMenuView('list');
   };
 
   const deleteToppingFromGroup = (groupId, toppingId) => {
-    const updated = toppingGroups.map(g =>
+    saveGroups(toppingGroups.map(g =>
       g.id === groupId ? { ...g, items: g.items.filter(t => t.id !== toppingId) } : g
-    );
-    setToppingGroups(updated);
-    saveToStorage(STORAGE_KEYS.TOPPING_GROUPS, updated);
+    ));
   };
 
   // ─────────────────────────────────────────────
