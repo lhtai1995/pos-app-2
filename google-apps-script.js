@@ -70,21 +70,31 @@ function getMenu() {
   const data = sheet.getDataRange().getValues();
   if (data.length <= 1) return [];
 
-  const headers = data[0];
   return data.slice(1)
-    .filter(row => row[3] !== false && row[3] !== 'FALSE') // Active filter
-    .map((row, idx) => ({
-      rowIndex: idx + 2, // 1-indexed, skip header
+    .filter(row => row[3] !== false && row[3] !== 'FALSE')
+    .map((row) => ({
       category: row[0],
       name: row[1],
       price: Number(row[2]),
+      // col 4: Active, col 5: applicableToppingGroups (JSON)
+      applicableToppingGroups: row[4] ? String(row[4]) : '[]',
     }))
     .filter(item => item.name);
 }
 
 function addMenuItem(payload) {
   const sheet = getSheet('Menu');
-  sheet.appendRow([payload.category, payload.name, payload.price, true]);
+  // Đảm bảo header có đủ cột
+  if (sheet.getLastRow() === 0) {
+    sheet.appendRow(['Danh mục', 'Tên Món', 'Giá', 'Active', 'applicableToppingGroups']);
+  }
+  sheet.appendRow([
+    payload.category,
+    payload.name,
+    payload.price,
+    true,
+    JSON.stringify(payload.applicableToppingGroups || []),
+  ]);
   return { success: true };
 }
 
@@ -93,11 +103,14 @@ function updateMenuItem(payload) {
   const data = sheet.getDataRange().getValues();
 
   for (let i = 1; i < data.length; i++) {
-    // Match by name + category (original values)
     if (data[i][1] === payload.originalName && data[i][0] === payload.originalCategory) {
-      sheet.getRange(i + 1, 1, 1, 4).setValues([
-        [payload.category, payload.name, payload.price, true]
-      ]);
+      sheet.getRange(i + 1, 1, 1, 5).setValues([[
+        payload.category,
+        payload.name,
+        payload.price,
+        true,
+        JSON.stringify(payload.applicableToppingGroups || []),
+      ]]);
       return { success: true };
     }
   }
@@ -120,17 +133,20 @@ function deleteMenuItem(payload) {
 // Sync toàn bộ menu từ app lên sheet (dùng lần đầu)
 function syncMenu(items) {
   const sheet = getSheet('Menu');
-  // Xoá hết data cũ (giữ header)
   if (sheet.getLastRow() > 1) {
     sheet.deleteRows(2, sheet.getLastRow() - 1);
   }
-  // Thêm header nếu chưa có
   if (sheet.getLastRow() === 0) {
-    sheet.appendRow(['Danh mục', 'Tên Món', 'Giá', 'Active']);
+    sheet.appendRow(['Danh mục', 'Tên Món', 'Giá', 'Active', 'applicableToppingGroups']);
   }
-  // Import items
   items.forEach(item => {
-    sheet.appendRow([item.category, item.name, item.price, true]);
+    sheet.appendRow([
+      item.category,
+      item.name,
+      item.price,
+      true,
+      JSON.stringify(item.applicableToppingGroups || []),
+    ]);
   });
   return { success: true, count: items.length };
 }
