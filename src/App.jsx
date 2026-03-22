@@ -146,10 +146,17 @@ export default function App() {
           }
         }
 
-        // Cập nhật Orders hôm nay
+        // Cập nhật Orders hôm nay — smart merge
         if (gsOrders?.length > 0 && !gsOrders.error) {
-          setOrders(gsOrders);
-          saveToStorage(STORAGE_KEYS.ORDERS, gsOrders);
+          setOrders(prev => {
+            const sheetIds = new Set(gsOrders.map(o => o.id));
+            // Giữ lại order local chưa được sync lên Sheet
+            const pendingLocal = prev.filter(o => !sheetIds.has(o.id));
+            const merged = [...pendingLocal, ...gsOrders]
+              .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+            saveToStorage(STORAGE_KEYS.ORDERS, merged);
+            return merged;
+          });
         }
 
         setCloudStatus('ok');
@@ -168,7 +175,16 @@ export default function App() {
     if (!silent) setIsRefreshingOrders(true);
     try {
       const gs = await gsGet('getTodayOrders');
-      if (gs && !gs.error) setOrders(gs);
+      if (gs && !gs.error) {
+        setOrders(prev => {
+          const sheetIds = new Set(gs.map(o => o.id));
+          const pendingLocal = prev.filter(o => !sheetIds.has(o.id));
+          const merged = [...pendingLocal, ...gs]
+            .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+          saveToStorage(STORAGE_KEYS.ORDERS, merged);
+          return merged;
+        });
+      }
     } catch {}
     if (!silent) setIsRefreshingOrders(false);
   };
