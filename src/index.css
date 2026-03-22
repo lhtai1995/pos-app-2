@@ -456,6 +456,92 @@ body {
 ────────────────────────────────────────────── */
 .report-body { padding: 16px; }
 
+/* Period Tabs */
+.period-tabs {
+  display: flex;
+  gap: 6px;
+  padding: 0 0 12px;
+  margin-top: 8px;
+}
+
+.period-tab {
+  flex: 1;
+  padding: 8px 4px;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-md);
+  background: none;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.period-tab.active {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+  font-weight: 600;
+}
+
+/* Trend badges */
+.trend {
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 600;
+  margin-top: 4px;
+}
+
+.trend.up { color: var(--secondary); }
+.trend.down { color: var(--danger); }
+
+/* Day breakdown */
+.day-breakdown {
+  background: var(--surface);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  margin-top: 16px;
+  border: 1.5px solid var(--border);
+}
+
+.day-breakdown h3 {
+  padding: 12px 14px 8px;
+  font-size: 0.88rem;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border);
+  margin: 0;
+  font-weight: 600;
+}
+
+.day-row {
+  display: flex;
+  align-items: center;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  gap: 8px;
+}
+
+.day-row:last-child { border-bottom: none; }
+
+.day-label {
+  font-weight: 500;
+  font-size: 0.88rem;
+  color: var(--text-main);
+  min-width: 48px;
+}
+
+.day-count {
+  flex: 1;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+
+.day-revenue {
+  font-weight: 700;
+  font-size: 0.9rem;
+  color: var(--primary);
+}
+
 .refresh-btn {
   background: var(--primary-light);
   color: var(--primary);

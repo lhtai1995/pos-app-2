@@ -16,6 +16,7 @@ function doGet(e) {
     else if (action === 'getTodayOrders') result = getTodayOrders();
     else if (action === 'getToppingGroups') result = getToppingGroups();
     else if (action === 'getAllData') result = getAllData();
+    else if (action === 'getOrdersByDateRange') result = getOrdersByDateRange(e.parameter.start, e.parameter.end);
     else result = { error: 'Unknown action' };
 
     return jsonResponse(result);
@@ -330,4 +331,28 @@ function getAllData() {
     toppingGroups: getToppingGroups(),
     todayOrders: getTodayOrders(),
   };
+}
+
+// \u2500\u2500 ORDERS BY DATE RANGE (B\u00e1o c\u00e1o tu\u1ea7n/th\u00e1ng) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+function getOrdersByDateRange(startISO, endISO) {
+  if (!startISO || !endISO) return { error: 'Missing start/end params' };
+  const sheet = getSheet('Orders');
+  const data = sheet.getDataRange().getValues();
+  if (data.length <= 1) return [];
+
+  const start = new Date(startISO);
+  const end = new Date(endISO);
+
+  return data.slice(1)
+    .filter(row => {
+      if (!row[0] || !row[1]) return false;
+      const d = new Date(row[1]);
+      return d >= start && d <= end;
+    })
+    .map(row => ({
+      id: String(row[0]),
+      timestamp: row[1],
+      items: (() => { try { return JSON.parse(row[2] || '[]'); } catch { return []; } })(),
+      total: Number(row[3]) || 0,
+    }));
 }

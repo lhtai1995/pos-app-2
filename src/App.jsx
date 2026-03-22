@@ -7,8 +7,9 @@ import { BarChart3, Home, Settings, Plus, Trash2, X, Edit2, Check,
 // ──────────────────────────────────────────────
 const GS_URL = 'https://script.google.com/macros/s/AKfycbzigqPwXPuR1j98CeX8YGrRZpPApXYmGtxotIdsWJGIbB38Gf0ATE0FPcufTElS-Fpo0A/exec';
 
-const gsGet = async (action) => {
-  const res = await fetch(`${GS_URL}?action=${action}`);
+const gsGet = async (action, params = {}) => {
+  const qs = new URLSearchParams({ action, ...params }).toString();
+  const res = await fetch(`${GS_URL}?${qs}`);
   return res.json();
 };
 
@@ -62,6 +63,12 @@ export default function App() {
   const [selectedToppings, setSelectedToppings] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [isRefreshingOrders, setIsRefreshingOrders] = useState(false);
+
+  // ── Report states ──
+  const [reportPeriod, setReportPeriod] = useState('today');
+  const [periodOrders, setPeriodOrders] = useState([]);
+  const [prevPeriodOrders, setPrevPeriodOrders] = useState([]);
+  const [isLoadingPeriod, setIsLoadingPeriod] = useState(false);
 
   // ── Menu management states ──
   const [menuView, setMenuView] = useState('list');
@@ -189,12 +196,78 @@ export default function App() {
     if (!silent) setIsRefreshingOrders(false);
   };
 
+  // ── Period range helpers ──
+  const getPeriodRange = (period) => {
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const todayEnd = new Date(today.getTime() + 86400000 - 1);
+    if (period === 'today') return {
+      start: today, end: todayEnd,
+      prevStart: new Date(today.getTime() - 86400000),
+      prevEnd: new Date(today.getTime() - 1),
+      label: 'Hôm nay', prevLabel: 'Hôm qua',
+    };
+    if (period === 'week') {
+      const day = today.getDay() || 7;
+      const weekStart = new Date(today.getTime() - (day - 1) * 86400000);
+      return {
+        start: weekStart, end: todayEnd,
+        prevStart: new Date(weekStart.getTime() - 7 * 86400000),
+        prevEnd: new Date(weekStart.getTime() - 1),
+        label: 'Tuần này', prevLabel: 'Tuần trước',
+      };
+    }
+    if (period === 'month') {
+      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+      const prevMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      const prevMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59);
+      return {
+        start: monthStart, end: todayEnd,
+        prevStart: prevMonthStart, prevEnd: prevMonthEnd,
+        label: 'Tháng này', prevLabel: 'Tháng trước',
+      };
+    }
+  };
+
+  const fetchPeriodData = async (period) => {
+    if (period === 'today') {
+      // Dùng lại orders đã có
+      const todayList = orders.filter(o => new Date(o.timestamp).toDateString() === new Date().toDateString());
+      setPeriodOrders(todayList);
+      // Hôm qua
+      const range = getPeriodRange('today');
+      try {
+        setIsLoadingPeriod(true);
+        const prev = await gsGet('getOrdersByDateRange', {
+          start: range.prevStart.toISOString(),
+          end: range.prevEnd.toISOString(),
+        });
+        setPrevPeriodOrders(prev?.error ? [] : prev);
+      } catch { setPrevPeriodOrders([]); }
+      setIsLoadingPeriod(false);
+      return;
+    }
+    const range = getPeriodRange(period);
+    setIsLoadingPeriod(true);
+    try {
+      const [curr, prev] = await Promise.all([
+        gsGet('getOrdersByDateRange', { start: range.start.toISOString(), end: range.end.toISOString() }),
+        gsGet('getOrdersByDateRange', { start: range.prevStart.toISOString(), end: range.prevEnd.toISOString() }),
+      ]);
+      setPeriodOrders(curr?.error ? [] : curr);
+      setPrevPeriodOrders(prev?.error ? [] : prev);
+    } catch {
+      setPeriodOrders([]);
+      setPrevPeriodOrders([]);
+    }
+    setIsLoadingPeriod(false);
+  };
+
+  // Fetch khi đổi period hoặc mở tab báo cáo
   useEffect(() => {
     if (activeTab !== 'report') return;
-    fetchTodayOrders();
-    const t = setInterval(() => fetchTodayOrders(true), 60000);
-    return () => clearInterval(t);
-  }, [activeTab]);
+    fetchPeriodData(reportPeriod);
+  }, [activeTab, reportPeriod, orders]);
 
   // ─────────────────────────────────────────────
   // ORDER LOGIC
@@ -482,7 +555,7 @@ export default function App() {
           </div>
           <div className="order-footer">
             <span className="order-total-label">{currentOrder.length} ly · <strong>{formatPrice(currentOrderTotal)}</strong></span>
-            <button className="checkout-btn" onClick={completeOrder}>Thanh toán</button>
+            <button className="checkout-btn" onClick={completeOrder}>Log món</button>
           </div>
         </div>
       )}
@@ -560,68 +633,149 @@ export default function App() {
   // ─────────────────────────────────────────────
   // RENDER: REPORT TAB
   // ─────────────────────────────────────────────
-  const renderReportTab = () => (
-    <div className="report-tab">
-      <header className="header">
-        <div className="header-row">
-          <div>
-            <h2>Báo cáo Hôm nay</h2>
-            <p className="header-sub">
-              {new Date().toLocaleDateString('vi-VN', { weekday: 'long', day: 'numeric', month: 'long' })}
-            </p>
+  const renderReportTab = () => {
+    const range = getPeriodRange(reportPeriod);
+    const currRevenue = periodOrders.reduce((s, o) => s + o.total, 0);
+    const prevRevenue = prevPeriodOrders.reduce((s, o) => s + o.total, 0);
+    const currCount = periodOrders.reduce((s, o) => s + (o.items?.length || 0), 0);
+    const prevCount = prevPeriodOrders.reduce((s, o) => s + (o.items?.length || 0), 0);
+    const currOrders = periodOrders.length;
+    const prevOrders = prevPeriodOrders.length;
+
+    const pct = (curr, prev) => {
+      if (!prev) return curr > 0 ? 100 : 0;
+      return Math.round(((curr - prev) / prev) * 100);
+    };
+
+    const Trend = ({ curr, prev, prefix = '' }) => {
+      const p = pct(curr, prev);
+      if (prev === 0 && curr === 0) return null;
+      const up = p >= 0;
+      return (
+        <span className={`trend ${up ? 'up' : 'down'}`}>
+          {up ? '↑' : '↓'}{Math.abs(p)}% vs {range.prevLabel}
+        </span>
+      );
+    };
+
+    // Group period orders by day (for week/month view)
+    const byDay = periodOrders.reduce((acc, o) => {
+      const day = new Date(o.timestamp).toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' });
+      if (!acc[day]) acc[day] = { revenue: 0, count: 0 };
+      acc[day].revenue += o.total;
+      acc[day].count += o.items?.length || 0;
+      return acc;
+    }, {});
+
+    return (
+      <div className="report-tab">
+        <header className="header">
+          <div className="header-row">
+            <h2>Báo cáo</h2>
+            <button
+              className={`refresh-btn ${isLoadingPeriod ? 'spinning' : ''}`}
+              onClick={() => fetchPeriodData(reportPeriod)}
+            >
+              <RefreshCw size={16} />
+            </button>
           </div>
-          <button
-            className={`refresh-btn ${isRefreshingOrders ? 'spinning' : ''}`}
-            onClick={() => fetchTodayOrders()}
-          >
-            <RefreshCw size={16} />
-          </button>
-        </div>
-      </header>
 
-      <div className="report-body">
-        <div className="report-summary">
-          <div className="summary-card total"><p>Doanh thu</p><h3>{formatPrice(todayRevenue)}</h3></div>
-          <div className="summary-card count"><p>Ly đã bán</p><h3>{todayCount} ly</h3></div>
-          <div className="summary-card orders"><p>Đơn hàng</p><h3>{todayOrders.length} đơn</h3></div>
-        </div>
+          {/* Period Picker */}
+          <div className="period-tabs">
+            {[['today', 'Hôm nay'], ['week', 'Tuần này'], ['month', 'Tháng này']].map(([key, label]) => (
+              <button
+                key={key}
+                className={`period-tab ${reportPeriod === key ? 'active' : ''}`}
+                onClick={() => setReportPeriod(key)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </header>
 
-        <div className="recent-orders">
-          <h3>Giao dịch gần đây</h3>
-          {todayOrders.length === 0 ? (
-            <p className="empty-state">Chưa có giao dịch nào hôm nay</p>
+        <div className="report-body">
+          {isLoadingPeriod ? (
+            <div className="loading-state">Đang tải báo cáo...</div>
           ) : (
-            todayOrders.map(order => (
-              <div key={order.id} className="transaction-card">
-                <div className="tx-header">
-                  <span className="tx-time">
-                    {new Date(order.timestamp).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}
-                  </span>
-                  <div className="tx-header-right">
-                    <span className="tx-total">{formatPrice(order.total)}</span>
-                    <button className="tx-delete-btn" onClick={() => deleteOrder(order.id)} title="Xóa giao dịch">
-                      <Trash2 size={14} />
-                    </button>
-                  </div>
+            <>
+              {/* Summary Cards */}
+              <div className="report-summary">
+                <div className="summary-card total">
+                  <p>Doanh thu</p>
+                  <h3>{formatPrice(currRevenue)}</h3>
+                  <Trend curr={currRevenue} prev={prevRevenue} />
                 </div>
-                <div className="tx-items">
-                  {order.items.map((item, idx) => (
-                    <div key={idx} className="tx-item">
-                      <span>{item.name}</span>
-                      {item.toppings?.length > 0 && (
-                        <span className="tx-toppings">+ {item.toppings.map(t => t.name).join(', ')}</span>
-                      )}
-                      <span className="tx-item-price">{formatPrice(item.totalPrice)}</span>
-                    </div>
-                  ))}
+                <div className="summary-card count">
+                  <p>Ly bán</p>
+                  <h3>{currCount} ly</h3>
+                  <Trend curr={currCount} prev={prevCount} />
+                </div>
+                <div className="summary-card orders">
+                  <p>Đơn hàng</p>
+                  <h3>{currOrders} đơn</h3>
+                  <Trend curr={currOrders} prev={prevOrders} />
                 </div>
               </div>
-            ))
+
+              {/* Daily Breakdown (week/month) */}
+              {reportPeriod !== 'today' && Object.keys(byDay).length > 0 && (
+                <div className="day-breakdown">
+                  <h3>Chi tiết theo ngày</h3>
+                  {Object.entries(byDay)
+                    .sort((a, b) => b[0].localeCompare(a[0]))
+                    .map(([day, data]) => (
+                      <div key={day} className="day-row">
+                        <span className="day-label">{day}</span>
+                        <span className="day-count">{data.count} ly</span>
+                        <span className="day-revenue">{formatPrice(data.revenue)}</span>
+                      </div>
+                    ))}
+                </div>
+              )}
+
+              {/* Transaction List (today only) */}
+              {reportPeriod === 'today' && (
+                <div className="recent-orders">
+                  <h3>Giao dịch ({periodOrders.length})</h3>
+                  {periodOrders.length === 0 ? (
+                    <p className="empty-state">Chưa có giao dịch nào</p>
+                  ) : (
+                    periodOrders.map(order => (
+                      <div key={order.id} className="transaction-card">
+                        <div className="tx-header">
+                          <span className="tx-time">
+                            {new Date(order.timestamp).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                          <div className="tx-header-right">
+                            <span className="tx-total">{formatPrice(order.total)}</span>
+                            <button className="tx-delete-btn" onClick={() => deleteOrder(order.id)} title="Xóa">
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
+                        </div>
+                        <div className="tx-items">
+                          {order.items.map((item, idx) => (
+                            <div key={idx} className="tx-item">
+                              <span>{item.name}</span>
+                              {item.toppings?.length > 0 && (
+                                <span className="tx-toppings">+ {item.toppings.map(t => t.name).join(', ')}</span>
+                              )}
+                              <span className="tx-item-price">{formatPrice(item.totalPrice)}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
+            </>
           )}
         </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   // ─────────────────────────────────────────────
   // RENDER: MENU MANAGEMENT TAB
