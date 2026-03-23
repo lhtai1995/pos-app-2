@@ -205,13 +205,20 @@ export default function App() {
     ? menuItems.filter(i => i.name.toLowerCase().includes(searchQuery.toLowerCase()) || i.category.toLowerCase().includes(searchQuery.toLowerCase()))
     : menuItems;
 
-  // Top 10 món bán chạy tháng này (sắp xếp theo monthlyItemStats)
-  const top10MenuItems = [...menuItems]
-    .sort((a, b) => (monthlyItemStats[b.name] || 0) - (monthlyItemStats[a.name] || 0))
-    .slice(0, 10);
+  // Chỉ tính top 10 khi có data tháng này
+  const hasMonthlyData = Object.keys(monthlyItemStats).length > 0;
+  const top10MenuItems = hasMonthlyData
+    ? [...menuItems]
+        .sort((a, b) => (monthlyItemStats[b.name] || 0) - (monthlyItemStats[a.name] || 0))
+        .slice(0, 10)
+    : [];
 
   // Items hiển thị trong order tab
-  const displayItems = searchQuery ? filteredItems : top10MenuItems;
+  const displayItems = searchQuery
+    ? filteredItems
+    : hasMonthlyData
+      ? top10MenuItems
+      : menuItems; // chưa có data → hiện tất cả
 
   const currentOrderTotal = currentOrder.reduce((s, i) => s + i.totalPrice, 0);
 
@@ -564,7 +571,11 @@ export default function App() {
           <>
             {/* Label */}
             <p className="order-list-label">
-              {searchQuery ? `Kết quả tìm kiếm (${displayItems.length})` : '🔥 Top 10 bán chạy tháng này'}
+              {searchQuery
+                ? `Kết quả tìm kiếm (${displayItems.length})`
+                : hasMonthlyData
+                  ? '🔥 Top 10 bán chạy tháng này'
+                  : `Tất cả món (${displayItems.length})`}
             </p>
 
             {/* Menu Items */}
