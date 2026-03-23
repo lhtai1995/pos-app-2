@@ -17,6 +17,7 @@ const SK = {
   GROUPS: 'dol_groups',
   ORDERS: 'dol_orders',
   REPORT: 'dol_report_cache',
+  TOPPINGS: 'dol_toppings',
 };
 
 const REPORT_TTL = 5 * 60 * 1000;
@@ -69,10 +70,13 @@ const parseGroups = (snap) => {
   const data = snap.val() || {};
   return Object.entries(data).map(([id, v]) => ({
     id, name: v.name,
-    items: v.items
-      ? Object.entries(v.items).map(([tid, t]) => ({ id: tid, name: t.name, price: t.price }))
-      : [],
+    items: v.items ? Object.keys(v.items).filter(k => v.items[k] === true) : [],
   }));
+};
+
+const parseToppings = (snap) => {
+  const data = snap.val() || {};
+  return Object.entries(data).map(([id, v]) => ({ id, name: v.name, price: v.price }));
 };
 
 // Parse Firebase snapshot của orders (1 ngày)
@@ -91,6 +95,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState('order');
   const [menuItems, setMenuItems] = useState([]);
   const [toppingGroups, setToppingGroups] = useState([]);
+  const [toppings, setToppings] = useState([]);
   const [orders, setOrders] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
@@ -120,16 +125,17 @@ export default function App() {
   const [expandedGroups, setExpandedGroups] = useState({});
   const [form, setForm] = useState({ category: '', name: '', price: '', applicableToppingGroups: [] });
   const [groupForm, setGroupForm] = useState({ name: '' });
-  const [toppingForm, setToppingForm] = useState({ name: '', price: '', groupId: '' });
+  const [toppingForm, setToppingForm] = useState({ name: '', price: '' });
 
   // ──────────────────────────────────────────────
   // REAL-TIME FIREBASE LISTENERS
   // ──────────────────────────────────────────────
   useEffect(() => {
     // Show cache ngay lập tức (0ms)
-    const cm = fromStorage(SK.MENU); const cg = fromStorage(SK.GROUPS); const co = fromStorage(SK.ORDERS);
+    const cm = fromStorage(SK.MENU); const cg = fromStorage(SK.GROUPS); const co = fromStorage(SK.ORDERS); const ct = fromStorage(SK.TOPPINGS);
     if (cm?.length) setMenuItems(cm);
     if (cg?.length) setToppingGroups(cg);
+    if (ct?.length) setToppings(ct);
     if (co?.length) setOrders(co);
     setIsLoading(!cm?.length);
 
@@ -154,6 +160,12 @@ export default function App() {
       toStorage(SK.GROUPS, groups);
     });
 
+    const unsubToppings = onValue(ref(db, 'toppings'), snap => {
+      const ts = parseToppings(snap);
+      setToppings(ts);
+      toStorage(SK.TOPPINGS, ts);
+    });
+
     // ── Listen: Today's Orders (real-time) ──
     const todayKey = dateKey();
     const unsubOrders = onValue(ref(db, `orders/${todayKey}`), snap => {
@@ -164,14 +176,14 @@ export default function App() {
     });
 
     return () => {
-      unsubMenu(); unsubGroups(); unsubOrders();
+      unsubMenu(); unsubGroups(); unsubToppings(); unsubOrders();
       window.removeEventListener('online', onOnline);
       window.removeEventListener('offline', onOffline);
     };
   }, []);
 
   // Derived
-  const allToppings = toppingGroups.flatMap(g => g.items);
+  const allToppings = toppings;
   const categories = [...new Set(menuItems.map(i => i.category))];
   const filteredItems = searchQuery
     ? menuItems.filter(i => i.name.toLowerCase().includes(searchQuery.toLowerCase()) || i.category.toLowerCase().includes(searchQuery.toLowerCase()))
@@ -312,20 +324,29 @@ export default function App() {
     await remove(ref(db, `toppingGroups/${groupId}`));
   };
 
-  const saveToppingToGroup = async () => {
-    if (!toppingForm.name.trim() || !toppingForm.price || !toppingForm.groupId) return;
+  const saveTopping = async () => {
+    if (!toppingForm.name.trim() || !toppingForm.price) return;
     const payload = { name: toppingForm.name.trim(), price: parseInt(toppingForm.price, 10) };
     if (editingItem?.type === 'topping') {
-      await update(ref(db, `toppingGroups/${editingItem.groupId}/items/${editingItem.id}`), payload);
+      await update(ref(db, `toppings/${editingItem.id}`), payload);
     } else {
-      const newRef = push(ref(db, `toppingGroups/${toppingForm.groupId}/items`));
+      const newRef = push(ref(db, 'toppings'));
       await set(newRef, payload);
     }
-    setToppingForm({ name: '', price: '', groupId: '' }); setEditingItem(null); setMenuView('list');
+    setToppingForm({ name: '', price: '' }); setEditingItem(null); setMenuView('list');
   };
 
-  const deleteToppingFromGroup = async (groupId, toppingId) => {
-    await remove(ref(db, `toppingGroups/${groupId}/items/${toppingId}`));
+  const deleteTopping = async (id) => {
+    if (!window.confirm('Xóa topping này?')) return;
+    await remove(ref(db, `toppings/${id}`));
+  };
+
+  const toggleToppingForGroup = async (groupId, toppingId, isActive) => {
+    if (isActive) {
+      await remove(ref(db, `toppingGroups/${groupId}/items/${toppingId}`));
+    } else {
+      await set(ref(db, `toppingGroups/${groupId}/items/${toppingId}`), true);
+    }
   };
 
   // ──────────────────────────────────────────────
@@ -511,6 +532,13 @@ export default function App() {
         const visibleGroups = appGroupIds.length > 0
           ? toppingGroups.filter(g => appGroupIds.includes(g.id))
           : toppingGroups;
+        
+        // Resolve topping IDs into actual topping objects
+        const resolvedGroups = visibleGroups.map(g => ({
+          ...g,
+          resolvedItems: g.items.map(tid => toppings.find(t => t.id === tid)).filter(Boolean)
+        }));
+
         const toppingTotal = selectedToppings.reduce((s, t) => s + t.price, 0);
         return (
           <div className="bottom-sheet-overlay" onClick={() => setShowToppingSheet(false)}>
@@ -519,14 +547,14 @@ export default function App() {
                 <div><h3>Chọn topping</h3><p>{selectedItemToAdd?.name}</p></div>
                 <button className="sheet-close" onClick={() => setShowToppingSheet(false)}><X size={20} /></button>
               </div>
-              {visibleGroups.every(g => g.items.length === 0) ? (
+              {resolvedGroups.every(g => g.resolvedItems.length === 0) ? (
                 <p className="empty-state" style={{ padding: '16px' }}>Món này không có topping</p>
               ) : (
                 <div className="topping-list">
-                  {visibleGroups.map(group => group.items.length > 0 && (
+                  {resolvedGroups.map(group => group.resolvedItems.length > 0 && (
                     <div key={group.id} className="topping-group-section">
                       <p className="topping-group-label">{group.name}</p>
-                      {group.items.map(topping => {
+                      {group.resolvedItems.map(topping => {
                         const isSel = selectedToppings.find(t => t.id === topping.id);
                         return (
                           <div key={topping.id} className={`topping-item ${isSel ? 'selected' : ''}`} onClick={() => toggleTopping(topping)}>
@@ -736,26 +764,18 @@ export default function App() {
     return (
       <div className="app-container"><main className="main-content"><div className="form-page">
         <header className="header header-with-back">
-          <button className="back-btn" onClick={() => { setMenuView('list'); setEditingItem(null); setToppingForm({ name: '', price: '', groupId: '' }); }}><X size={20} /></button>
+          <button className="back-btn" onClick={() => { setMenuView('list'); setEditingItem(null); setToppingForm({ name: '', price: '' }); }}><X size={20} /></button>
           <h2>{isEdit ? 'Sửa topping' : 'Thêm topping'}</h2>
           <div style={{ width: 36 }} />
         </header>
         <div className="form-body">
-          {!isEdit && (
-            <div className="form-group"><label>Nhóm</label>
-              <select className="form-input" value={toppingForm.groupId} onChange={e => setToppingForm(p => ({ ...p, groupId: e.target.value }))}>
-                <option value="">-- Chọn nhóm --</option>
-                {toppingGroups.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
-              </select>
-            </div>
-          )}
           <div className="form-group"><label>Tên topping</label>
             <input className="form-input" placeholder="VD: Trân Châu Trắng" value={toppingForm.name} onChange={e => setToppingForm(p => ({ ...p, name: e.target.value }))} />
           </div>
           <div className="form-group"><label>Giá (VNĐ)</label>
             <input className="form-input" type="number" placeholder="VD: 5000" value={toppingForm.price} onChange={e => setToppingForm(p => ({ ...p, price: e.target.value }))} />
           </div>
-          <button className="save-btn" onClick={saveToppingToGroup}><Check size={18} /> {isEdit ? 'Lưu' : 'Thêm vào nhóm'}</button>
+          <button className="save-btn" onClick={saveTopping}><Check size={18} /> {isEdit ? 'Lưu thay đổi' : 'Thêm topping'}</button>
         </div>
       </div></main></div>
     );
@@ -770,6 +790,7 @@ export default function App() {
       <div className="sub-tabs">
         <button className={`sub-tab ${menuTab === 'items' ? 'active' : ''}`} onClick={() => setMenuTab('items')}>Thực đơn ({menuItems.length})</button>
         <button className={`sub-tab ${menuTab === 'toppings' ? 'active' : ''}`} onClick={() => setMenuTab('toppings')}>Nhóm Topping ({toppingGroups.length})</button>
+        <button className={`sub-tab ${menuTab === 'topping_items' ? 'active' : ''}`} onClick={() => setMenuTab('topping_items')}>Topping lẻ ({toppings.length})</button>
       </div>
 
       {menuTab === 'items' && (
@@ -803,6 +824,27 @@ export default function App() {
         </div>
       )}
 
+      {menuTab === 'topping_items' && (
+        <div className="mgmt-list">
+          <button className="add-new-btn" onClick={() => { setToppingForm({ name: '', price: '' }); setMenuView('addTopping'); }}><Plus size={18} /> Thêm topping lẻ mới</button>
+          {toppings.length === 0 && <p className="empty-state">Chưa có topping lẻ nào.</p>}
+          <div className="mgmt-category">
+            {toppings.map(t => (
+              <div key={t.id} className="mgmt-item">
+                <div className="mgmt-item-info">
+                  <p className="mgmt-item-name">{t.name}</p>
+                  <p className="mgmt-item-price">{formatPrice(t.price)}</p>
+                </div>
+                <div className="mgmt-item-actions">
+                  <button className="action-btn edit" onClick={() => { setEditingItem({ ...t, type: 'topping' }); setToppingForm({ name: t.name, price: String(t.price) }); setMenuView('editTopping'); }}><Edit2 size={15} /></button>
+                  <button className="action-btn delete" onClick={() => deleteTopping(t.id)}><Trash2 size={15} /></button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {menuTab === 'toppings' && (
         <div className="mgmt-list">
           <button className="add-new-btn" onClick={() => setMenuView('addGroup')}><FolderPlus size={18} /> Thêm nhóm topping</button>
@@ -824,21 +866,25 @@ export default function App() {
               </div>
               {expandedGroups[group.id] && (
                 <div className="group-topping-list">
-                  {group.items.map(t => (
-                    <div key={t.id} className="mgmt-item">
-                      <div className="mgmt-item-info">
-                        <p className="mgmt-item-name">{t.name}</p>
-                        <p className="mgmt-item-price">{formatPrice(t.price)}</p>
+                  {toppings.length === 0 && <p style={{fontSize: '0.8rem', color: '#9CA3AF'}}>Chưa có topping lẻ nào, hãy tạo topping lẻ trước.</p>}
+                  {toppings.map(t => {
+                    const isInGroup = group.items.includes(t.id);
+                    return (
+                      <div key={t.id} className="mgmt-item topping-toggle-item" style={{ cursor: 'pointer' }} onClick={() => toggleToppingForGroup(group.id, t.id, isInGroup)}>
+                        <div className="mgmt-item-info">
+                          <p className="mgmt-item-name" style={{ color: isInGroup ? 'var(--text-main)' : 'var(--text-light)' }}>{t.name}</p>
+                          <p className="mgmt-item-price">{formatPrice(t.price)}</p>
+                        </div>
+                        <div className="mgmt-item-actions">
+                          {isInGroup ? (
+                            <Check size={20} color="var(--primary)" />
+                          ) : (
+                            <div style={{ width: 20, height: 20, border: '2px solid var(--border)', borderRadius: '4px' }} />
+                          )}
+                        </div>
                       </div>
-                      <div className="mgmt-item-actions">
-                        <button className="action-btn edit" onClick={() => { setEditingItem({ ...t, type: 'topping', groupId: group.id }); setToppingForm({ name: t.name, price: String(t.price), groupId: group.id }); setMenuView('editTopping'); }}><Edit2 size={15} /></button>
-                        <button className="action-btn delete" onClick={() => deleteToppingFromGroup(group.id, t.id)}><Trash2 size={15} /></button>
-                      </div>
-                    </div>
-                  ))}
-                  <button className="add-topping-to-group-btn" onClick={() => { setToppingForm({ name: '', price: '', groupId: group.id }); setMenuView('addTopping'); }}>
-                    <Plus size={14} /> Thêm topping vào nhóm
-                  </button>
+                    );
+                  })}
                 </div>
               )}
             </div>
