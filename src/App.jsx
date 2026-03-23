@@ -108,6 +108,9 @@ export default function App() {
   const [cachedReport, setCachedReport] = useState(null);
   const [isLoadingPeriod, setIsLoadingPeriod] = useState(false);
 
+  // ── Toast (undo delete) ──
+  const [toast, setToast] = useState(null); // { message, onUndo }
+
   // ── Menu management states ──
   const [menuView, setMenuView] = useState('list');
   const [editingItem, setEditingItem] = useState(null);
@@ -229,11 +232,33 @@ export default function App() {
     await set(newRef, newOrder); // Real-time listener updates orders automatically
   };
 
-  const deleteOrder = async (order) => {
-    if (!window.confirm('Xóa giao dịch này?')) return;
+  const deleteOrder = (order) => {
     const dk = order.dateKey || dateKey(new Date(order.timestamp));
-    await remove(ref(db, `orders/${dk}/${order.id}`));
+
+    // Optimistic: xóa khỏi UI ngay lập tức (0ms)
+    setOrders(prev => prev.filter(o => o.id !== order.id));
+    setPeriodOrders(prev => prev.filter(o => o.id !== order.id));
     invalidateReportCache();
+
+    // Undo buffer: giữ lại order trong 4s
+    let undone = false;
+    const timer = setTimeout(() => {
+      if (!undone) remove(ref(db, `orders/${dk}/${order.id}`)); // xóa thật sau 4s
+    }, 4000);
+
+    // Hiện toast với nút hoàn tác
+    setToast({
+      message: 'Đã xóa giao dịch',
+      onUndo: () => {
+        undone = true;
+        clearTimeout(timer);
+        // Restore: add lại vào local state (Firebase onValue sẽ sync đúng)
+        setOrders(prev => [order, ...prev].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp)));
+        setPeriodOrders(prev => [order, ...prev].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp)));
+        setToast(null);
+      },
+    });
+    setTimeout(() => setToast(null), 4000);
   };
 
   // ──────────────────────────────────────────────
@@ -825,6 +850,14 @@ export default function App() {
         <button className={`nav-item ${activeTab === 'report' ? 'active' : ''}`} onClick={() => setActiveTab('report')}><BarChart3 size={24} /><span>Báo cáo</span></button>
         <button className={`nav-item ${activeTab === 'menu' ? 'active' : ''}`} onClick={() => setActiveTab('menu')}><Settings size={24} /><span>Menu</span></button>
       </nav>
+
+      {/* Undo Toast */}
+      {toast && (
+        <div className="toast">
+          <span>{toast.message}</span>
+          <button className="toast-undo" onClick={toast.onUndo}>Hoàn tác</button>
+        </div>
+      )}
     </div>
   );
 }
