@@ -74,13 +74,11 @@ body {
 ────────────────────────────────────────────── */
 .header {
   padding: 16px 20px;
-  background-color: rgba(255, 255, 255, 0.85); /* Glassmorphism */
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  background-color: var(--surface);
   position: sticky;
   top: 0;
   z-index: 50;
-  border-bottom: 1px solid rgba(229, 231, 235, 0.5);
+  border-bottom: 1px solid var(--border);
 }
 
 .header h2 {
@@ -1159,15 +1157,13 @@ body {
   left: 0;
   right: 0;
   height: 72px;
-  background: rgba(255, 255, 255, 0.85);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+  background: var(--surface);
   display: flex;
   justify-content: space-around;
   align-items: center;
-  border-top: 1px solid rgba(229, 231, 235, 0.5);
+  border-top: 1px solid var(--border);
   padding-bottom: var(--safe-area-bottom);
-  box-shadow: 0 -10px 30px rgba(0,0,0,0.05);
+  box-shadow: 0 -4px 16px rgba(0,0,0,0.04);
   z-index: 40;
 }
 
