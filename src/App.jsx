@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import {
   ref, set, push, update, remove, onValue, get,
   query, orderByKey, startAt, endAt,
@@ -584,18 +585,15 @@ export default function App() {
         </div>
       )}
 
-      {showToppingSheet && (() => {
+      {showToppingSheet && createPortal((() => {
         const appGroupIds = selectedItemToAdd?.applicableToppingGroups || [];
         const visibleGroups = appGroupIds.length > 0
           ? toppingGroups.filter(g => appGroupIds.includes(g.id))
           : toppingGroups;
-        
-        // Resolve topping IDs into actual topping objects
         const resolvedGroups = visibleGroups.map(g => ({
           ...g,
           resolvedItems: g.items.map(tid => toppings.find(t => t.id === tid)).filter(Boolean)
         }));
-
         const toppingTotal = selectedToppings.reduce((s, t) => s + t.price, 0);
         return (
           <div ref={sheetOverlayRef} className="bottom-sheet-overlay" onClick={closeSheet}>
@@ -631,7 +629,7 @@ export default function App() {
                 )}
               </div>{/* end sheet-scroll-body */}
 
-              {/* ── Sticky footer: luôn dính đáy ── */}
+              {/* ── Sticky footer ── */}
               <div className="sheet-sticky-footer">
                 {selectedToppings.length > 0 && (
                   <div className="sheet-preview">
@@ -646,7 +644,7 @@ export default function App() {
             </div>
           </div>
         );
-      })()}
+      })(), document.body)}
     </div>
   );
 
