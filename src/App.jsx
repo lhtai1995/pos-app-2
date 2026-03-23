@@ -114,8 +114,9 @@ export default function App() {
   const [isLoadingPeriod, setIsLoadingPeriod] = useState(false);
 
   // ── Toast (undo delete) & UI states ──
-  const [toast, setToast] = useState(null); // { message, onUndo }
+  const [toast, setToast] = useState(null);
   const [activeCategoryOrder, setActiveCategoryOrder] = useState('All');
+  const [printLabels, setPrintLabels] = useState(null); // array of items to print
 
   // ── Menu management states ──
   const [menuView, setMenuView] = useState('list');
@@ -233,16 +234,32 @@ export default function App() {
     if (!currentOrder.length) return;
     const todayKey = dateKey();
     const newRef = push(ref(db, `orders/${todayKey}`));
+    const itemsToLog = currentOrder.map(({ cartId, ...rest }) => rest);
     const newOrder = {
       id: newRef.key,
       dateKey: todayKey,
-      items: currentOrder.map(({ cartId, ...rest }) => rest), // remove cartId before saving
+      items: itemsToLog,
       total: currentOrderTotal,
       timestamp: new Date().toISOString(),
     };
+
+    // Trigger in label — ra cấu hình trước khi clear
+    const labelsToPrint = currentOrder.map((item, idx) => ({
+      ...item,
+      labelIdx: idx + 1,
+      printTime: new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
+    }));
+
     setCurrentOrder([]);
     invalidateReportCache();
-    await set(newRef, newOrder); // Real-time listener updates orders automatically
+    await set(newRef, newOrder);
+
+    // In labels sau khi luưu Firebase xong
+    setPrintLabels(labelsToPrint);
+    setTimeout(() => {
+      window.print();
+      setPrintLabels(null);
+    }, 100);
   };
 
   const deleteOrder = (order) => {
@@ -915,6 +932,32 @@ export default function App() {
         <div className="toast">
           <span>{toast.message}</span>
           <button className="toast-undo" onClick={toast.onUndo}>Hoàn tác</button>
+        </div>
+      )}
+
+      {/* Print Labels — ẩn trên screen, hiện khi in */}
+      {printLabels && (
+        <div className="print-labels-container">
+          {printLabels.map((item, i) => (
+            <div key={item.cartId || i} className="print-label">
+              <div className="print-label-header">
+                <span className="print-shop-name">Trạm 81</span>
+                <span className="print-time">{item.printTime}</span>
+              </div>
+              <div className="print-label-body">
+                <p className="print-drink-name">{item.name}</p>
+                {item.toppings?.length > 0 && (
+                  <p className="print-toppings">
+                    {item.toppings.map(t => t.name).join(' · ')}
+                  </p>
+                )}
+              </div>
+              <div className="print-label-footer">
+                <span className="print-price">{formatPrice(item.totalPrice)}</span>
+                <span className="print-cup-num">Ly {item.labelIdx}/{printLabels.length}</span>
+              </div>
+            </div>
+          ))}
         </div>
       )}
     </div>

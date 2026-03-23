@@ -1466,3 +1466,124 @@ select.form-input {
 .premium-card:active .premium-btn-plus {
   transform: scale(0.9);
 }
+
+/* ──────────────────────────────────────────────
+   PRINT LABELS
+────────────────────────────────────────────── */
+
+/* Ẩn label khỏi màn hình bình thường */
+.print-labels-container {
+  display: none;
+}
+
+/* Định nghĩa kích thước label — chuẩn dán ly */
+.print-label {
+  width: 50mm;
+  min-height: 30mm;
+  border: 1px dashed #ccc;
+  border-radius: 6px;
+  padding: 4mm 5mm;
+  margin-bottom: 4mm;
+  font-family: 'Inter', sans-serif;
+  page-break-inside: avoid;
+  display: flex;
+  flex-direction: column;
+  gap: 2mm;
+}
+
+.print-label-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 0.5px solid #ddd;
+  padding-bottom: 2mm;
+}
+
+.print-shop-name {
+  font-weight: 800;
+  font-size: 9pt;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.print-time {
+  font-size: 7.5pt;
+  color: #555;
+}
+
+.print-label-body {
+  flex: 1;
+}
+
+.print-drink-name {
+  font-size: 14pt;
+  font-weight: 700;
+  line-height: 1.25;
+  margin: 0;
+}
+
+.print-toppings {
+  font-size: 8pt;
+  color: #444;
+  margin-top: 1mm;
+  line-height: 1.4;
+}
+
+.print-label-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-top: 0.5px solid #ddd;
+  padding-top: 2mm;
+}
+
+.print-price {
+  font-size: 9pt;
+  font-weight: 600;
+}
+
+.print-cup-num {
+  font-size: 7.5pt;
+  color: #666;
+  font-weight: 500;
+}
+
+/* ──────────────────────────────────────────────
+   @MEDIA PRINT — Chỉ hiện labels khi in
+────────────────────────────────────────────── */
+@media print {
+  /* Ẩn toàn bộ app */
+  body > * {
+    display: none !important;
+  }
+
+  /* Ẩn toàn bộ nội dung bên trong app-container */
+  .app-container > *:not(.print-labels-container) {
+    display: none !important;
+  }
+
+  /* Hiện lại print area */
+  .app-container {
+    display: block !important;
+    box-shadow: none !important;
+    background: white !important;
+    height: auto !important;
+    max-width: 100% !important;
+  }
+
+  .print-labels-container {
+    display: flex !important;
+    flex-wrap: wrap;
+    gap: 4mm;
+    padding: 4mm;
+    background: white;
+  }
+
+  .print-label {
+    border: 1px dashed #999;
+    background: white;
+  }
+
+  /* Reset các margin heading */
+  * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+}
