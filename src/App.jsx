@@ -201,6 +201,7 @@ export default function App() {
 
   // Derived
   const allToppings = toppings;
+  const categories = [...new Set(menuItems.map(i => i.category))]; // dùng bởi menu tab form
   const filteredItems = searchQuery
     ? menuItems.filter(i => i.name.toLowerCase().includes(searchQuery.toLowerCase()) || i.category.toLowerCase().includes(searchQuery.toLowerCase()))
     : menuItems;
