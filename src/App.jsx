@@ -10,7 +10,7 @@ import {
   TrendingUp, TrendingDown,
 } from 'lucide-react';
 import {
-  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
+  AreaChart, Area, XAxis, YAxis, CartesianGrid,
   ResponsiveContainer, BarChart, Bar,
 } from 'recharts';
 
@@ -633,18 +633,20 @@ export default function App() {
       return v;
     };
 
-    const CustomRevenueTooltip = ({ active, payload, label }) => {
-      if (active && payload && payload.length) {
-        return (
-          <div className="chart-tooltip">
-            <p className="chart-tooltip-label">{label}</p>
-            <p><strong>{formatPrice(payload[0].value)}</strong></p>
-            {payload[1] && <p style={{color:'#10B981'}}>{payload[1].value} ly</p>}
-          </div>
-        );
-      }
-      return null;
-    };
+    // Build top items from periodOrders
+    const itemStats = {};
+    periodOrders.forEach(order => {
+      (order.items || []).forEach(item => {
+        const key = item.name;
+        if (!itemStats[key]) itemStats[key] = { name: key, count: 0, revenue: 0 };
+        itemStats[key].count += 1;
+        itemStats[key].revenue += item.totalPrice || 0;
+      });
+    });
+    const topItems = Object.values(itemStats)
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 10);
+    const maxCount = topItems[0]?.count || 1;
 
     return (
       <div className="report-tab">
@@ -700,12 +702,11 @@ export default function App() {
                       <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.04)" />
                       <XAxis dataKey="day" tick={{ fontSize: 11, fill: '#9CA3AF' }} tickLine={false} axisLine={false} />
                       <YAxis tickFormatter={formatRevTickY} tick={{ fontSize: 11, fill: '#9CA3AF' }} tickLine={false} axisLine={false} />
-                      <Tooltip content={<CustomRevenueTooltip />} />
                       <Area
                         type="monotone" dataKey="revenue"
                         stroke="#4F46E5" strokeWidth={2.5}
                         fill="url(#revenueGradient)"
-                        dot={false} activeDot={{ r: 5, fill: '#4F46E5', strokeWidth: 0 }}
+                        dot={false} activeDot={false} isAnimationActive={false}
                       />
                     </AreaChart>
                   </ResponsiveContainer>
@@ -730,10 +731,39 @@ export default function App() {
                       <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.04)" />
                       <XAxis dataKey="day" tick={{ fontSize: 11, fill: '#9CA3AF' }} tickLine={false} axisLine={false} />
                       <YAxis tick={{ fontSize: 11, fill: '#9CA3AF' }} tickLine={false} axisLine={false} />
-                      <Tooltip formatter={(v) => [`${v} ly`, 'Số ly']} labelStyle={{ color: '#111827' }} contentStyle={{ borderRadius: 10, border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }} />
-                      <Bar dataKey="count" fill="url(#countGradient)" radius={[6, 6, 0, 0]} />
+                      <Bar dataKey="count" fill="url(#countGradient)" radius={[6, 6, 0, 0]} isAnimationActive={false} />
                     </BarChart>
                   </ResponsiveContainer>
+                </div>
+              )}
+
+              {/* ── TOP ITEMS ── */}
+              {topItems.length > 0 && (
+                <div className="top-items-card">
+                  <div className="chart-card-header">
+                    <h3 className="chart-title">🏆 Món bán chạy</h3>
+                    <span className="chart-unit">{range.label}</span>
+                  </div>
+                  <div className="top-items-list">
+                    {topItems.map((item, idx) => (
+                      <div key={item.name} className="top-item-row">
+                        <span className={`top-item-rank rank-${idx + 1}`}>{idx + 1}</span>
+                        <div className="top-item-info">
+                          <div className="top-item-name-row">
+                            <span className="top-item-name">{item.name}</span>
+                            <span className="top-item-count">{item.count} ly</span>
+                          </div>
+                          <div className="top-item-bar-track">
+                            <div
+                              className="top-item-bar-fill"
+                              style={{ width: `${(item.count / maxCount) * 100}%` }}
+                            />
+                          </div>
+                        </div>
+                        <span className="top-item-revenue">{formatPrice(item.revenue)}</span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
 
