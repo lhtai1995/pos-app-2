@@ -108,8 +108,9 @@ export default function App() {
   const [cachedReport, setCachedReport] = useState(null);
   const [isLoadingPeriod, setIsLoadingPeriod] = useState(false);
 
-  // ── Toast (undo delete) ──
+  // ── Toast (undo delete) & UI states ──
   const [toast, setToast] = useState(null); // { message, onUndo }
+  const [activeCategoryOrder, setActiveCategoryOrder] = useState('All');
 
   // ── Menu management states ──
   const [menuView, setMenuView] = useState('list');
@@ -442,30 +443,42 @@ export default function App() {
         ) : Object.keys(filteredByCategory).length === 0 ? (
           <p className="empty-state">Không tìm thấy món nào</p>
         ) : (
-          Object.entries(filteredByCategory).map(([cat, items]) => (
-            <div key={cat} className="category-section">
-              <button className="category-header" onClick={() => setExpandedCategories(p => ({ ...p, [cat]: !p[cat] }))}>
-                <span className="cat-name">{cat}</span>
-                <span className="cat-meta">
-                  <span className="cat-count">{items.length}</span>
-                  {expandedCategories[cat] ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-                </span>
+          <>
+            {/* ── Category Pills (Horizontal Scroll) ── */}
+            <div className="category-pills">
+              <button 
+                className={`category-pill ${activeCategoryOrder === 'All' ? 'active' : ''}`}
+                onClick={() => setActiveCategoryOrder('All')}
+              >
+                Tất cả
               </button>
-              {!expandedCategories[cat] && (
-                <div className="item-grid">
-                  {items.map(item => (
-                    <div key={item.id} className="menu-card" onClick={() => handleAddItem(item)}>
-                      <div className="menu-card-info">
-                        <p className="item-name">{item.name}</p>
-                        <p className="item-price">{formatPrice(item.price)}</p>
-                      </div>
-                      <button className="add-btn"><Plus size={20} /></button>
-                    </div>
-                  ))}
-                </div>
-              )}
+              {Object.keys(filteredByCategory).map(cat => (
+                <button 
+                  key={cat}
+                  className={`category-pill ${activeCategoryOrder === cat ? 'active' : ''}`}
+                  onClick={() => setActiveCategoryOrder(cat)}
+                >
+                  {cat} <span className="pill-count">{filteredByCategory[cat]?.length || 0}</span>
+                </button>
+              ))}
             </div>
-          ))
+
+            {/* ── Menu Items ── */}
+            <div className="item-grid premium-grid">
+              {Object.entries(filteredByCategory)
+                .filter(([cat]) => activeCategoryOrder === 'All' || cat === activeCategoryOrder)
+                .flatMap(([_, items]) => items)
+                .map(item => (
+                  <div key={item.id} className="menu-card premium-card" onClick={() => handleAddItem(item)}>
+                    <div className="menu-card-info">
+                      <p className="item-name">{item.name}</p>
+                      <p className="item-price">{formatPrice(item.price)}</p>
+                    </div>
+                    <button className="add-btn premium-btn-plus"><Plus size={18} strokeWidth={3} /></button>
+                  </div>
+              ))}
+            </div>
+          </>
         )}
       </div>
 
