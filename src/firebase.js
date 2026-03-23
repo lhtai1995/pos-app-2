@@ -21,13 +21,13 @@ import { getDatabase } from 'firebase/database';
 // ──────────────────────────────────────────────────────────────
 
 const firebaseConfig = {
-  apiKey: "",
-  authDomain: "",
-  databaseURL: "", // ← QUAN TRỌNG: phải có cái này (Realtime DB URL)
-  projectId: "",
-  storageBucket: "",
-  messagingSenderId: "",
-  appId: "",
+  apiKey: "AIzaSyDvJ943I4BljkTQKggNkW_5_to7rDFpufQ",
+  authDomain: "tram-81-pos.firebaseapp.com",
+  databaseURL: "https://tram-81-pos-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "tram-81-pos",
+  storageBucket: "tram-81-pos.firebasestorage.app",
+  messagingSenderId: "112403107186",
+  appId: "1:112403107186:web:09b2b85fcc06b9becde1eb",
 };
 
 const app = initializeApp(firebaseConfig);
