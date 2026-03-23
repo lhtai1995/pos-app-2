@@ -122,7 +122,11 @@ export default function App() {
 
   // ── Toast (undo delete) & UI states ──
   const [toast, setToast] = useState(null); // { message, onUndo }
-  const [activeCategoryOrder, setActiveCategoryOrder] = useState('All');
+
+  // ── Monthly item stats (cho top 10 màn hình bán hàng) ──
+  const [monthlyItemStats, setMonthlyItemStats] = useState(
+    () => { try { const c = JSON.parse(localStorage.getItem('dol_top_monthly') || '{}'); return c.ts && Date.now() - c.ts < 10*60*1000 ? c.stats : {}; } catch { return {}; } }
+  );
 
   // ── Menu management states ──
   const [menuView, setMenuView] = useState('list');
@@ -197,15 +201,18 @@ export default function App() {
 
   // Derived
   const allToppings = toppings;
-  const categories = [...new Set(menuItems.map(i => i.category))];
   const filteredItems = searchQuery
     ? menuItems.filter(i => i.name.toLowerCase().includes(searchQuery.toLowerCase()) || i.category.toLowerCase().includes(searchQuery.toLowerCase()))
     : menuItems;
-  const filteredByCategory = categories.reduce((acc, cat) => {
-    const items = filteredItems.filter(i => i.category === cat);
-    if (items.length) acc[cat] = items;
-    return acc;
-  }, {});
+
+  // Top 10 món bán chạy tháng này (sắp xếp theo monthlyItemStats)
+  const top10MenuItems = [...menuItems]
+    .sort((a, b) => (monthlyItemStats[b.name] || 0) - (monthlyItemStats[a.name] || 0))
+    .slice(0, 10);
+
+  // Items hiển thị trong order tab
+  const displayItems = searchQuery ? filteredItems : top10MenuItems;
+
   const currentOrderTotal = currentOrder.reduce((s, i) => s + i.totalPrice, 0);
 
   // ──────────────────────────────────────────────
@@ -247,6 +254,30 @@ export default function App() {
 
   // ──────────────────────────────────────────────
   // ORDER LOGIC
+  // ──────────────────────────────────────────────
+  // FETCH MONTHLY ITEM STATS (cho top 10 màn bán hàng)
+  // ──────────────────────────────────────────────
+  useEffect(() => {
+    const fetchMonthlyStats = async () => {
+      const now = new Date();
+      const sk = dateKey(new Date(now.getFullYear(), now.getMonth(), 1));
+      const ek = dateKey(now);
+      try {
+        const snap = await get(query(ref(db, 'orders'), orderByKey(), startAt(sk), endAt(ek)));
+        const data = snap.val() || {};
+        const stats = {};
+        Object.values(data).forEach(day =>
+          Object.values(day || {}).forEach(order =>
+            (order.items || []).forEach(item => { stats[item.name] = (stats[item.name] || 0) + 1; })
+          )
+        );
+        setMonthlyItemStats(stats);
+        localStorage.setItem('dol_top_monthly', JSON.stringify({ stats, ts: Date.now() }));
+      } catch (e) { console.warn('Monthly stats fetch failed', e); }
+    };
+    fetchMonthlyStats();
+  }, []);
+
   // ──────────────────────────────────────────────
   const handleAddItem = (item) => {
     setSelectedItemToAdd(item);
@@ -512,49 +543,43 @@ export default function App() {
         <div className="header-row"><h2>Bán hàng</h2><StatusBadge /></div>
         <div className="search-bar">
           <Search size={16} className="search-icon" />
-          <input className="search-input" placeholder="Tìm món..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
+          <input
+            className="search-input"
+            placeholder={searchQuery ? 'Tìm món...' : '🔍 Tìm món khác...'}
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+          />
+          {searchQuery && (
+            <button className="search-clear" onClick={() => setSearchQuery('')}><X size={14} /></button>
+          )}
         </div>
       </header>
 
       <div className="order-body">
         {isLoading ? (
           <div className="loading-state">Đang tải menu...</div>
-        ) : Object.keys(filteredByCategory).length === 0 ? (
+        ) : displayItems.length === 0 ? (
           <p className="empty-state">Không tìm thấy món nào</p>
         ) : (
           <>
-            {/* ── Category Pills (Horizontal Scroll) ── */}
-            <div className="category-pills">
-              <button 
-                className={`category-pill ${activeCategoryOrder === 'All' ? 'active' : ''}`}
-                onClick={() => setActiveCategoryOrder('All')}
-              >
-                Tất cả
-              </button>
-              {Object.keys(filteredByCategory).map(cat => (
-                <button 
-                  key={cat}
-                  className={`category-pill ${activeCategoryOrder === cat ? 'active' : ''}`}
-                  onClick={() => setActiveCategoryOrder(cat)}
-                >
-                  {cat} <span className="pill-count">{filteredByCategory[cat]?.length || 0}</span>
-                </button>
-              ))}
-            </div>
+            {/* Label */}
+            <p className="order-list-label">
+              {searchQuery ? `Kết quả tìm kiếm (${displayItems.length})` : '🔥 Top 10 bán chạy tháng này'}
+            </p>
 
-            {/* ── Menu Items ── */}
+            {/* Menu Items */}
             <div className="item-grid premium-grid">
-              {Object.entries(filteredByCategory)
-                .filter(([cat]) => activeCategoryOrder === 'All' || cat === activeCategoryOrder)
-                .flatMap(([_, items]) => items)
-                .map(item => (
-                  <div key={item.id} className="menu-card premium-card" onClick={() => handleAddItem(item)}>
-                    <div className="menu-card-info">
-                      <p className="item-name">{item.name}</p>
-                      <p className="item-price">{formatPrice(item.price)}</p>
-                    </div>
-                    <button className="add-btn premium-btn-plus"><Plus size={18} strokeWidth={3} /></button>
+              {displayItems.map(item => (
+                <div key={item.id} className="menu-card premium-card" onClick={() => handleAddItem(item)}>
+                  <div className="menu-card-info">
+                    <p className="item-name">{item.name}</p>
+                    <p className="item-price">{formatPrice(item.price)}</p>
                   </div>
+                  {monthlyItemStats[item.name] > 0 && !searchQuery && (
+                    <span className="item-sold-badge">{monthlyItemStats[item.name]} ly</span>
+                  )}
+                  <button className="add-btn premium-btn-plus"><Plus size={18} strokeWidth={3} /></button>
+                </div>
               ))}
             </div>
           </>

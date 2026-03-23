@@ -152,6 +152,45 @@ body {
   box-shadow: 0 0 0 4px var(--primary-light);
 }
 
+.search-clear {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  padding: 4px;
+  border-radius: 50%;
+  transition: background 0.15s;
+}
+.search-clear:active { background: var(--surface-2); }
+
+/* Order list label */
+.order-list-label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  padding: 12px 16px 6px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+/* Badge số ly đã bán */
+.item-sold-badge {
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--primary);
+  background: var(--primary-light);
+  padding: 2px 7px;
+  border-radius: 20px;
+  flex-shrink: 0;
+  margin-right: 6px;
+}
+
 /* ──────────────────────────────────────────────
    ORDER TAB
 ────────────────────────────────────────────── */
