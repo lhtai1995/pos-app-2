@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   ref, set, push, update, remove, onValue, get,
   query, orderByKey, startAt, endAt,
@@ -13,6 +13,7 @@ import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid,
   ResponsiveContainer, BarChart, Bar,
 } from 'recharts';
+import { gsap } from 'gsap';
 
 // ──────────────────────────────────────────────
 // STORAGE (cache offline)
@@ -132,6 +133,12 @@ export default function App() {
   const [groupForm, setGroupForm] = useState({ name: '' });
   const [toppingForm, setToppingForm] = useState({ name: '', price: '' });
 
+  // ── Animation refs ──
+  const sheetRef = useRef(null);
+  const sheetOverlayRef = useRef(null);
+  const toastRef = useRef(null);
+  const mainContentRef = useRef(null);
+
   // ──────────────────────────────────────────────
   // REAL-TIME FIREBASE LISTENERS
   // ──────────────────────────────────────────────
@@ -201,6 +208,43 @@ export default function App() {
   const currentOrderTotal = currentOrder.reduce((s, i) => s + i.totalPrice, 0);
 
   // ──────────────────────────────────────────────
+  // GSAP ANIMATIONS
+  // ──────────────────────────────────────────────
+
+  // Bottom Sheet: animate in khi mount
+  useEffect(() => {
+    if (showToppingSheet && sheetRef.current) {
+      gsap.set(sheetRef.current, { y: '100%' });
+      gsap.set(sheetOverlayRef.current, { opacity: 0 });
+      gsap.to(sheetOverlayRef.current, { opacity: 1, duration: 0.2, ease: 'power2.out' });
+      gsap.to(sheetRef.current, { y: '0%', duration: 0.38, ease: 'power3.out' });
+    }
+  }, [showToppingSheet]);
+
+  // Tab switch: fade khi đổi tab
+  useEffect(() => {
+    if (mainContentRef.current) {
+      gsap.fromTo(mainContentRef.current,
+        { opacity: 0, y: 10 },
+        { opacity: 1, y: 0, duration: 0.25, ease: 'power2.out' }
+      );
+    }
+  }, [activeTab]);
+
+  // Close Bottom Sheet với animation slide-down
+  const closeSheet = useCallback(() => {
+    if (sheetRef.current) {
+      gsap.to(sheetOverlayRef.current, { opacity: 0, duration: 0.2 });
+      gsap.to(sheetRef.current, {
+        y: '100%', duration: 0.3, ease: 'power3.in',
+        onComplete: () => setShowToppingSheet(false),
+      });
+    } else {
+      setShowToppingSheet(false);
+    }
+  }, []);
+
+  // ──────────────────────────────────────────────
   // ORDER LOGIC
   // ──────────────────────────────────────────────
   const handleAddItem = (item) => {
@@ -264,19 +308,27 @@ export default function App() {
       if (!undone) remove(ref(db, `orders/${dk}/${order.id}`)); // xóa thật sau 4s
     }, 4000);
 
-    // Hiện toast với nút hoàn tác
+    // Hiện toast với animation
     setToast({
       message: 'Đã xóa giao dịch',
       onUndo: () => {
         undone = true;
         clearTimeout(timer);
-        // Restore: add lại vào local state (Firebase onValue sẽ sync đúng)
         setOrders(prev => [order, ...prev].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp)));
         setPeriodOrders(prev => [order, ...prev].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp)));
         setToast(null);
       },
     });
     setTimeout(() => setToast(null), 4000);
+    // GSAP: Toast slide in
+    requestAnimationFrame(() => {
+      if (toastRef.current) {
+        gsap.fromTo(toastRef.current,
+          { y: 80, opacity: 0 },
+          { y: 0, opacity: 1, duration: 0.35, ease: 'back.out(1.5)' }
+        );
+      }
+    });
   };
 
   // ──────────────────────────────────────────────
@@ -546,11 +598,11 @@ export default function App() {
 
         const toppingTotal = selectedToppings.reduce((s, t) => s + t.price, 0);
         return (
-          <div className="bottom-sheet-overlay" onClick={() => setShowToppingSheet(false)}>
-            <div className="bottom-sheet" onClick={e => e.stopPropagation()}>
+          <div ref={sheetOverlayRef} className="bottom-sheet-overlay" onClick={closeSheet}>
+            <div ref={sheetRef} className="bottom-sheet" onClick={e => e.stopPropagation()}>
               <div className="sheet-header">
                 <div><h3>Chọn topping</h3><p>{selectedItemToAdd?.name}</p></div>
-                <button className="sheet-close" onClick={() => setShowToppingSheet(false)}><X size={20} /></button>
+                <button className="sheet-close" onClick={closeSheet}><X size={20} /></button>
               </div>
               {resolvedGroups.every(g => g.resolvedItems.length === 0) ? (
                 <p className="empty-state" style={{ padding: '16px' }}>Món này không có topping</p>
@@ -1024,7 +1076,7 @@ export default function App() {
   // ──────────────────────────────────────────────
   return (
     <div className="app-container">
-      <main className="main-content">
+      <main ref={mainContentRef} className="main-content">
         {activeTab === 'order' && renderOrderTab()}
         {activeTab === 'report' && renderReportTab()}
         {activeTab === 'menu' && renderMenuTab()}
@@ -1037,7 +1089,7 @@ export default function App() {
 
       {/* Undo Toast */}
       {toast && (
-        <div className="toast">
+        <div ref={toastRef} className="toast">
           <span>{toast.message}</span>
           <button className="toast-undo" onClick={toast.onUndo}>Hoàn tác</button>
         </div>
