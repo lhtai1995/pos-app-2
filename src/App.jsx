@@ -600,10 +600,12 @@ export default function App() {
         return (
           <div ref={sheetOverlayRef} className="bottom-sheet-overlay" onClick={closeSheet}>
             <div ref={sheetRef} className="bottom-sheet" onClick={e => e.stopPropagation()}>
-              <div className="sheet-header">
-                <div><h3>Chọn topping</h3><p>{selectedItemToAdd?.name}</p></div>
-                <button className="sheet-close" onClick={closeSheet}><X size={20} /></button>
-              </div>
+              {/* ── Scroll zone ── */}
+              <div className="sheet-scroll-body">
+                <div className="sheet-header">
+                  <div><h3>Chọn topping</h3><p>{selectedItemToAdd?.name}</p></div>
+                  <button className="sheet-close" onClick={closeSheet}><X size={20} /></button>
+                </div>
               {resolvedGroups.every(g => g.resolvedItems.length === 0) ? (
                 <p className="empty-state" style={{ padding: '16px' }}>Món này không có topping</p>
               ) : (
@@ -626,14 +628,21 @@ export default function App() {
                     </div>
                   ))}
                 </div>
-              )}
-              <div className="sheet-preview">
-                <span>{selectedItemToAdd?.name}</span>
-                {selectedToppings.map(t => <span key={t.id} className="preview-topping">+ {t.name}</span>)}
+                )}
+              </div>{/* end sheet-scroll-body */}
+
+              {/* ── Sticky footer: luôn dính đáy ── */}
+              <div className="sheet-sticky-footer">
+                {selectedToppings.length > 0 && (
+                  <div className="sheet-preview">
+                    <span>{selectedItemToAdd?.name}</span>
+                    {selectedToppings.map(t => <span key={t.id} className="preview-topping">+ {t.name}</span>)}
+                  </div>
+                )}
+                <button className="confirm-btn" onClick={confirmAddItem}>
+                  Thêm vào đơn — {formatPrice((selectedItemToAdd?.price || 0) + toppingTotal)}
+                </button>
               </div>
-              <button className="confirm-btn" onClick={confirmAddItem}>
-                Thêm vào đơn — {formatPrice((selectedItemToAdd?.price || 0) + toppingTotal)}
-              </button>
             </div>
           </div>
         );
