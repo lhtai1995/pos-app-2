@@ -561,29 +561,6 @@ export default function App() {
         )}
       </div>
 
-      {currentOrder.length > 0 && (
-        <div className="current-order-bar">
-          <div className="mini-order-list">
-            {currentOrder.map(item => (
-              <div key={item.cartId} className="mini-order-item">
-                <span className="mini-item-name">
-                  {item.name}
-                  {item.toppings?.length > 0 && <span className="mini-toppings"> · {item.toppings.map(t => t.name).join(', ')}</span>}
-                </span>
-                <div className="mini-item-actions">
-                  <span className="mini-item-price">{formatPrice(item.totalPrice)}</span>
-                  <button className="mini-re-add" onClick={() => quickReAdd(item)}><Plus size={12} /></button>
-                  <button className="mini-delete" onClick={() => removeCartItem(item.cartId)}><X size={12} /></button>
-                </div>
-              </div>
-            ))}
-          </div>
-          <div className="order-footer">
-            <span className="order-total-label">{currentOrder.length} ly · <strong>{formatPrice(currentOrderTotal)}</strong></span>
-            <button className="checkout-btn" onClick={completeOrder}>Log món</button>
-          </div>
-        </div>
-      )}
 
       {showToppingSheet && createPortal((() => {
         const appGroupIds = selectedItemToAdd?.applicableToppingGroups || [];
@@ -1099,6 +1076,31 @@ export default function App() {
         <div ref={toastRef} className="toast">
           <span>{toast.message}</span>
           <button className="toast-undo" onClick={toast.onUndo}>Hoàn tác</button>
+        </div>
+      )}
+
+      {/* Current Order Bar — luôn ghím phía trên nav */}
+      {activeTab === 'order' && currentOrder.length > 0 && (
+        <div className="current-order-bar">
+          <div className="mini-order-list">
+            {currentOrder.map(item => (
+              <div key={item.cartId} className="mini-order-item">
+                <span className="mini-item-name">
+                  {item.name}
+                  {item.toppings?.length > 0 && <span className="mini-toppings"> · {item.toppings.map(t => t.name).join(', ')}</span>}
+                </span>
+                <div className="mini-item-actions">
+                  <span className="mini-item-price">{formatPrice(item.totalPrice)}</span>
+                  <button className="mini-re-add" onClick={() => quickReAdd(item)}><Plus size={12} /></button>
+                  <button className="mini-delete" onClick={() => removeCartItem(item.cartId)}><X size={12} /></button>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="order-footer">
+            <span className="order-total-label">{currentOrder.length} ly · <strong>{formatPrice(currentOrderTotal)}</strong></span>
+            <button className="checkout-btn" onClick={completeOrder}>Log món</button>
+          </div>
         </div>
       )}
     </div>

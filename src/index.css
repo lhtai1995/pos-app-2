@@ -252,16 +252,16 @@ body {
   color: #fff;
 }
 
-
 /* ──────────────────────────────────────────────
    CURRENT ORDER BAR
 ────────────────────────────────────────────── */
-/* Defined below in MINI ORDER LIST section */
+/* current-order-bar — được đặt ở root JSX, position absolute trong app-container */
 
 @keyframes slideUp {
   from { transform: translateY(100%); opacity: 0; }
   to   { transform: translateY(0);   opacity: 1; }
 }
+
 
 .current-order-summary {
   display: flex;
@@ -1286,16 +1286,17 @@ body {
 ────────────────────────────────────────────── */
 .current-order-bar {
   position: absolute;
-  bottom: 72px; /* nav height */
-  left: 0; right: 0;
+  bottom: 72px;
+  left: 0;
+  right: 0;
   background: var(--surface);
   border-top: 1.5px solid var(--border);
   box-shadow: 0 -4px 16px rgba(0,0,0,0.08);
   z-index: 30;
-  max-height: 55vh;
+  max-height: 50vh;
   display: flex;
   flex-direction: column;
-  animation: slideUp 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .mini-order-list {
