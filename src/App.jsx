@@ -307,7 +307,7 @@ export default function App() {
       toppings: [...selectedToppings],
       totalPrice: selectedItemToAdd.price + toppingTotal,
     }]);
-    setShowToppingSheet(false);
+    closeSheet(); // ✅ dùng closeSheet để có GSAP slide-down animation
   };
 
   const quickReAdd = (cartItem) => {
@@ -325,13 +325,14 @@ export default function App() {
     const newOrder = {
       id: newRef.key,
       dateKey: todayKey,
-      items: currentOrder.map(({ cartId, ...rest }) => rest), // remove cartId before saving
+      items: currentOrder.map(({ cartId, ...rest }) => rest),
       total: currentOrderTotal,
       timestamp: new Date().toISOString(),
     };
     setCurrentOrder([]);
     invalidateReportCache();
-    await set(newRef, newOrder); // Real-time listener updates orders automatically
+    localStorage.removeItem('dol_top_monthly'); // invalidate monthly stats cache
+    await set(newRef, newOrder);
   };
 
   const deleteOrder = (order) => {
