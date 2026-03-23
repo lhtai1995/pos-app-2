@@ -252,24 +252,11 @@ body {
   color: #fff;
 }
 
+
 /* ──────────────────────────────────────────────
    CURRENT ORDER BAR
 ────────────────────────────────────────────── */
-.current-order-bar {
-  position: absolute;
-  bottom: 72px;
-  left: 0;
-  right: 0;
-  background: var(--surface);
-  padding: 14px 20px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  border-top: 1px solid var(--border);
-  box-shadow: 0 -4px 16px rgba(0,0,0,0.08);
-  z-index: 20;
-  animation: slideUp 0.25s cubic-bezier(0.16, 1, 0.3, 1);
-}
+/* Defined below in MINI ORDER LIST section */
 
 @keyframes slideUp {
   from { transform: translateY(100%); opacity: 0; }
@@ -1298,16 +1285,17 @@ body {
    MINI ORDER LIST (trong order bar)
 ────────────────────────────────────────────── */
 .current-order-bar {
-  position: fixed;
-  bottom: calc(64px + var(--safe-area-bottom));
+  position: absolute;
+  bottom: 72px; /* nav height */
   left: 0; right: 0;
   background: var(--surface);
   border-top: 1.5px solid var(--border);
   box-shadow: 0 -4px 16px rgba(0,0,0,0.08);
-  z-index: 10;
+  z-index: 30;
   max-height: 55vh;
   display: flex;
   flex-direction: column;
+  animation: slideUp 0.25s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .mini-order-list {
