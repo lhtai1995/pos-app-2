@@ -490,14 +490,67 @@ body {
 
 /* Trend badges */
 .trend {
-  display: block;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
   font-size: 0.72rem;
   font-weight: 600;
-  margin-top: 4px;
+  margin-top: 6px;
+  padding: 3px 7px;
+  border-radius: 20px;
 }
 
-.trend.up { color: var(--secondary); }
-.trend.down { color: var(--danger); }
+.trend.up { color: var(--secondary); background: var(--secondary-light); }
+.trend.down { color: var(--danger); background: var(--danger-light); }
+
+/* ──────────────────────────────────────────────
+   CHARTS
+────────────────────────────────────────────── */
+.chart-card {
+  background: var(--surface);
+  border-radius: var(--radius-xl);
+  padding: 16px;
+  margin-bottom: 16px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.04), 0 1px 3px rgba(0,0,0,0.02);
+  border: 1px solid rgba(229, 231, 235, 0.4);
+}
+
+.chart-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.chart-title {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.chart-unit {
+  font-size: 0.75rem;
+  color: var(--text-light);
+  background: var(--surface-2);
+  padding: 3px 8px;
+  border-radius: 20px;
+}
+
+.chart-tooltip {
+  background: white;
+  border-radius: 10px;
+  padding: 10px 14px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+  border: none;
+  font-size: 0.85rem;
+}
+
+.chart-tooltip-label {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  margin-bottom: 4px;
+}
+
 
 /* Day breakdown */
 .day-breakdown {
@@ -1465,125 +1518,4 @@ select.form-input {
 }
 .premium-card:active .premium-btn-plus {
   transform: scale(0.9);
-}
-
-/* ──────────────────────────────────────────────
-   PRINT LABELS
-────────────────────────────────────────────── */
-
-/* Ẩn label khỏi màn hình bình thường */
-.print-labels-container {
-  display: none;
-}
-
-/* Định nghĩa kích thước label — chuẩn dán ly */
-.print-label {
-  width: 50mm;
-  min-height: 30mm;
-  border: 1px dashed #ccc;
-  border-radius: 6px;
-  padding: 4mm 5mm;
-  margin-bottom: 4mm;
-  font-family: 'Inter', sans-serif;
-  page-break-inside: avoid;
-  display: flex;
-  flex-direction: column;
-  gap: 2mm;
-}
-
-.print-label-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  border-bottom: 0.5px solid #ddd;
-  padding-bottom: 2mm;
-}
-
-.print-shop-name {
-  font-weight: 800;
-  font-size: 9pt;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
-.print-time {
-  font-size: 7.5pt;
-  color: #555;
-}
-
-.print-label-body {
-  flex: 1;
-}
-
-.print-drink-name {
-  font-size: 14pt;
-  font-weight: 700;
-  line-height: 1.25;
-  margin: 0;
-}
-
-.print-toppings {
-  font-size: 8pt;
-  color: #444;
-  margin-top: 1mm;
-  line-height: 1.4;
-}
-
-.print-label-footer {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  border-top: 0.5px solid #ddd;
-  padding-top: 2mm;
-}
-
-.print-price {
-  font-size: 9pt;
-  font-weight: 600;
-}
-
-.print-cup-num {
-  font-size: 7.5pt;
-  color: #666;
-  font-weight: 500;
-}
-
-/* ──────────────────────────────────────────────
-   @MEDIA PRINT — Chỉ hiện labels khi in
-────────────────────────────────────────────── */
-@media print {
-  /* Ẩn toàn bộ app */
-  body > * {
-    display: none !important;
-  }
-
-  /* Ẩn toàn bộ nội dung bên trong app-container */
-  .app-container > *:not(.print-labels-container) {
-    display: none !important;
-  }
-
-  /* Hiện lại print area */
-  .app-container {
-    display: block !important;
-    box-shadow: none !important;
-    background: white !important;
-    height: auto !important;
-    max-width: 100% !important;
-  }
-
-  .print-labels-container {
-    display: flex !important;
-    flex-wrap: wrap;
-    gap: 4mm;
-    padding: 4mm;
-    background: white;
-  }
-
-  .print-label {
-    border: 1px dashed #999;
-    background: white;
-  }
-
-  /* Reset các margin heading */
-  * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 }

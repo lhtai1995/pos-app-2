@@ -7,7 +7,12 @@ import { db } from './firebase';
 import {
   BarChart3, Home, Settings, Plus, Trash2, X, Edit2, Check,
   Search, Wifi, WifiOff, RefreshCw, ChevronDown, ChevronUp, FolderPlus,
+  TrendingUp, TrendingDown,
 } from 'lucide-react';
+import {
+  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer, BarChart, Bar,
+} from 'recharts';
 
 // ──────────────────────────────────────────────
 // STORAGE (cache offline)
@@ -114,9 +119,8 @@ export default function App() {
   const [isLoadingPeriod, setIsLoadingPeriod] = useState(false);
 
   // ── Toast (undo delete) & UI states ──
-  const [toast, setToast] = useState(null);
+  const [toast, setToast] = useState(null); // { message, onUndo }
   const [activeCategoryOrder, setActiveCategoryOrder] = useState('All');
-  const [printLabels, setPrintLabels] = useState(null); // array of items to print
 
   // ── Menu management states ──
   const [menuView, setMenuView] = useState('list');
@@ -234,32 +238,16 @@ export default function App() {
     if (!currentOrder.length) return;
     const todayKey = dateKey();
     const newRef = push(ref(db, `orders/${todayKey}`));
-    const itemsToLog = currentOrder.map(({ cartId, ...rest }) => rest);
     const newOrder = {
       id: newRef.key,
       dateKey: todayKey,
-      items: itemsToLog,
+      items: currentOrder.map(({ cartId, ...rest }) => rest), // remove cartId before saving
       total: currentOrderTotal,
       timestamp: new Date().toISOString(),
     };
-
-    // Trigger in label — ra cấu hình trước khi clear
-    const labelsToPrint = currentOrder.map((item, idx) => ({
-      ...item,
-      labelIdx: idx + 1,
-      printTime: new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
-    }));
-
     setCurrentOrder([]);
     invalidateReportCache();
-    await set(newRef, newOrder);
-
-    // In labels sau khi luưu Firebase xong
-    setPrintLabels(labelsToPrint);
-    setTimeout(() => {
-      window.print();
-      setPrintLabels(null);
-    }, 100);
+    await set(newRef, newOrder); // Real-time listener updates orders automatically
   };
 
   const deleteOrder = (order) => {
@@ -616,11 +604,46 @@ export default function App() {
     const prevOrders  = prev.orders  ?? 0;
     const byDay       = curr.byDay   ?? {};
 
+    // Build chart data (sorted by date)
+    const chartData = Object.entries(byDay)
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([day, data]) => ({
+        day,
+        revenue: data.revenue,
+        count: data.count,
+      }));
+
     const pct = (c, p) => !p ? (c > 0 ? 100 : 0) : Math.round(((c - p) / p) * 100);
+
     const Trend = ({ curr, prev }) => {
       const p = pct(curr, prev);
       if (!prev && !curr) return null;
-      return <span className={`trend ${p >= 0 ? 'up' : 'down'}`}>{p >= 0 ? '↑' : '↓'}{Math.abs(p)}% vs {range.prevLabel}</span>;
+      const isUp = p >= 0;
+      return (
+        <span className={`trend ${isUp ? 'up' : 'down'}`}>
+          {isUp ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
+          {Math.abs(p)}% vs {range.prevLabel}
+        </span>
+      );
+    };
+
+    const formatRevTickY = (v) => {
+      if (v >= 1000000) return `${(v/1000000).toFixed(1)}M`;
+      if (v >= 1000) return `${(v/1000).toFixed(0)}k`;
+      return v;
+    };
+
+    const CustomRevenueTooltip = ({ active, payload, label }) => {
+      if (active && payload && payload.length) {
+        return (
+          <div className="chart-tooltip">
+            <p className="chart-tooltip-label">{label}</p>
+            <p><strong>{formatPrice(payload[0].value)}</strong></p>
+            {payload[1] && <p style={{color:'#10B981'}}>{payload[1].value} ly</p>}
+          </div>
+        );
+      }
+      return null;
     };
 
     return (
@@ -658,6 +681,61 @@ export default function App() {
                   <Trend curr={currOrders} prev={prevOrders} />
                 </div>
               </div>
+
+              {/* ── AREA CHART (Revenue over time) ── */}
+              {chartData.length > 0 && (
+                <div className="chart-card">
+                  <div className="chart-card-header">
+                    <h3 className="chart-title">Doanh thu theo ngày</h3>
+                    <span className="chart-unit">VNĐ</span>
+                  </div>
+                  <ResponsiveContainer width="100%" height={200}>
+                    <AreaChart data={chartData} margin={{ top: 6, right: 8, left: -16, bottom: 0 }}>
+                      <defs>
+                        <linearGradient id="revenueGradient" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="#4F46E5" stopOpacity={0.25} />
+                          <stop offset="100%" stopColor="#4F46E5" stopOpacity={0.0} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.04)" />
+                      <XAxis dataKey="day" tick={{ fontSize: 11, fill: '#9CA3AF' }} tickLine={false} axisLine={false} />
+                      <YAxis tickFormatter={formatRevTickY} tick={{ fontSize: 11, fill: '#9CA3AF' }} tickLine={false} axisLine={false} />
+                      <Tooltip content={<CustomRevenueTooltip />} />
+                      <Area
+                        type="monotone" dataKey="revenue"
+                        stroke="#4F46E5" strokeWidth={2.5}
+                        fill="url(#revenueGradient)"
+                        dot={false} activeDot={{ r: 5, fill: '#4F46E5', strokeWidth: 0 }}
+                      />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+
+              {/* ── BAR CHART (Cup count per day) ── */}
+              {chartData.length > 0 && (
+                <div className="chart-card">
+                  <div className="chart-card-header">
+                    <h3 className="chart-title">Số ly bán theo ngày</h3>
+                    <span className="chart-unit">ly</span>
+                  </div>
+                  <ResponsiveContainer width="100%" height={180}>
+                    <BarChart data={chartData} margin={{ top: 6, right: 8, left: -16, bottom: 0 }} barSize={16}>
+                      <defs>
+                        <linearGradient id="countGradient" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="#10B981" stopOpacity={1} />
+                          <stop offset="100%" stopColor="#10B981" stopOpacity={0.5} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.04)" />
+                      <XAxis dataKey="day" tick={{ fontSize: 11, fill: '#9CA3AF' }} tickLine={false} axisLine={false} />
+                      <YAxis tick={{ fontSize: 11, fill: '#9CA3AF' }} tickLine={false} axisLine={false} />
+                      <Tooltip formatter={(v) => [`${v} ly`, 'Số ly']} labelStyle={{ color: '#111827' }} contentStyle={{ borderRadius: 10, border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }} />
+                      <Bar dataKey="count" fill="url(#countGradient)" radius={[6, 6, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
 
               {reportPeriod !== 'today' && Object.keys(byDay).length > 0 && (
                 <div className="day-breakdown">
@@ -932,32 +1010,6 @@ export default function App() {
         <div className="toast">
           <span>{toast.message}</span>
           <button className="toast-undo" onClick={toast.onUndo}>Hoàn tác</button>
-        </div>
-      )}
-
-      {/* Print Labels — ẩn trên screen, hiện khi in */}
-      {printLabels && (
-        <div className="print-labels-container">
-          {printLabels.map((item, i) => (
-            <div key={item.cartId || i} className="print-label">
-              <div className="print-label-header">
-                <span className="print-shop-name">Trạm 81</span>
-                <span className="print-time">{item.printTime}</span>
-              </div>
-              <div className="print-label-body">
-                <p className="print-drink-name">{item.name}</p>
-                {item.toppings?.length > 0 && (
-                  <p className="print-toppings">
-                    {item.toppings.map(t => t.name).join(' · ')}
-                  </p>
-                )}
-              </div>
-              <div className="print-label-footer">
-                <span className="print-price">{formatPrice(item.totalPrice)}</span>
-                <span className="print-cup-num">Ly {item.labelIdx}/{printLabels.length}</span>
-              </div>
-            </div>
-          ))}
         </div>
       )}
     </div>
