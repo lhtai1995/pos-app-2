@@ -46,251 +46,6 @@ body {
 }
 
 /* ──────────────────────────────────────────────
-   LOGIN SCREEN
-────────────────────────────────────────────── */
-.login-screen {
-  min-height: 100vh;
-  min-height: 100dvh;
-  background: linear-gradient(160deg, #f8f7ff 0%, #eef2ff 50%, #f0fdf4 100%);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: space-between;
-  padding: 48px 24px 32px;
-}
-
-.login-logo-area {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-}
-
-.login-logo-img {
-  width: 110px;
-  height: 110px;
-  border-radius: 24px;
-  object-fit: contain;
-  background: #fff;
-  box-shadow: 0 8px 32px rgba(79,70,229,0.12);
-}
-
-.login-subtitle {
-  font-size: 0.82rem;
-  color: var(--text-muted);
-  margin-top: 4px;
-}
-
-.login-role-select {
-  width: 100%;
-  max-width: 360px;
-}
-
-.login-prompt {
-  text-align: center;
-  font-size: 0.82rem;
-  font-weight: 600;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  margin-bottom: 16px;
-}
-
-.role-cards {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.role-card {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  padding: 18px 20px;
-  border-radius: var(--radius-xl);
-  border: none;
-  cursor: pointer;
-  text-align: left;
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
-  width: 100%;
-}
-
-.role-card:active { transform: scale(0.97); }
-
-.role-staff {
-  background: #fff;
-  box-shadow: 0 4px 20px rgba(0,0,0,0.07);
-  color: var(--text-main);
-}
-
-.role-admin {
-  background: linear-gradient(135deg, #4F46E5, #6366f1);
-  box-shadow: 0 8px 24px rgba(79,70,229,0.35);
-  color: #fff;
-}
-
-.role-card-icon {
-  width: 46px;
-  height: 46px;
-  border-radius: 14px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-
-.role-staff .role-card-icon { background: var(--primary-light); color: var(--primary); }
-.role-admin .role-card-icon { background: rgba(255,255,255,0.2); color: #fff; }
-
-.role-card-body { flex: 1; }
-.role-card-body h3 { font-size: 1rem; font-weight: 700; margin-bottom: 2px; }
-.role-card-body p { font-size: 0.78rem; opacity: 0.7; font-weight: 400; }
-.role-staff .role-card-body p { color: var(--text-muted); opacity: 1; }
-
-.role-card-arrow { opacity: 0.5; flex-shrink: 0; }
-
-/* PIN entry */
-.pin-entry {
-  width: 100%;
-  max-width: 320px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0;
-}
-
-.pin-entry.shake {
-  animation: pinShake 0.4s cubic-bezier(.36,.07,.19,.97) both;
-}
-
-@keyframes pinShake {
-  10%, 90% { transform: translateX(-4px); }
-  20%, 80% { transform: translateX(6px); }
-  30%, 50%, 70% { transform: translateX(-6px); }
-  40%, 60% { transform: translateX(6px); }
-}
-
-.pin-back-btn {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  background: none;
-  border: none;
-  color: var(--primary);
-  font-size: 0.85rem;
-  font-weight: 600;
-  cursor: pointer;
-  padding: 4px 8px;
-  margin-bottom: 20px;
-  align-self: flex-start;
-}
-
-.pin-header {
-  text-align: center;
-  margin-bottom: 24px;
-}
-
-.pin-icon {
-  width: 52px;
-  height: 52px;
-  background: var(--primary-light);
-  color: var(--primary);
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin: 0 auto 12px;
-}
-
-.pin-header h3 { font-size: 1.1rem; font-weight: 700; color: var(--text-main); margin-bottom: 4px; }
-.pin-header p { font-size: 0.78rem; color: var(--text-muted); }
-.pin-header strong { color: var(--primary); }
-
-.pin-dots {
-  display: flex;
-  gap: 12px;
-  margin-bottom: 12px;
-}
-
-.pin-dot {
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  border: 2px solid var(--border);
-  background: var(--surface);
-  transition: all 0.15s ease;
-}
-
-.pin-dot.filled {
-  background: var(--primary);
-  border-color: var(--primary);
-  transform: scale(1.15);
-}
-
-.pin-error {
-  font-size: 0.8rem;
-  color: var(--danger);
-  font-weight: 500;
-  text-align: center;
-  min-height: 20px;
-  margin-bottom: 8px;
-}
-
-.pin-pad {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 10px;
-  width: 100%;
-  margin-bottom: 16px;
-}
-
-.pin-key {
-  aspect-ratio: 1;
-  border-radius: var(--radius-md);
-  border: none;
-  font-size: 1.4rem;
-  font-weight: 500;
-  background: #fff;
-  color: var(--text-main);
-  cursor: pointer;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
-  transition: transform 0.1s, box-shadow 0.1s;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.pin-key:active { transform: scale(0.9); box-shadow: none; }
-.pin-key.invisible { visibility: hidden; pointer-events: none; }
-.pin-key.backspace { font-size: 1.1rem; color: var(--text-muted); background: var(--surface-2); }
-
-.pin-confirm-btn {
-  width: 100%;
-  padding: 14px;
-  background: linear-gradient(135deg, var(--primary), #6366f1);
-  color: #fff;
-  border: none;
-  border-radius: var(--radius-lg);
-  font-size: 1rem;
-  font-weight: 700;
-  cursor: pointer;
-  transition: opacity 0.15s;
-  box-shadow: 0 4px 16px rgba(79,70,229,0.3);
-}
-
-.pin-confirm-btn:disabled { opacity: 0.45; cursor: not-allowed; }
-.pin-confirm-btn:not(:disabled):active { opacity: 0.85; }
-
-.login-version {
-  font-size: 0.72rem;
-  color: var(--text-light);
-}
-
-/* Logout nav button */
-.nav-logout { color: var(--text-muted) !important; }
-.nav-logout.active { color: var(--danger) !important; }
-
-/* ──────────────────────────────────────────────
    LAYOUT
 ────────────────────────────────────────────── */
 .app-container {
@@ -1933,6 +1688,40 @@ select.form-input {
 }
 .premium-card:active .premium-btn-plus {
   transform: scale(0.9);
+}
+
+/* ──────────────────────────────────────────────
+   SWIPE TO DELETE
+────────────────────────────────────────────── */
+.swipe-row-wrapper {
+  position: relative;
+  overflow: hidden;
+  /* Không đặt border-radius ở đây — để child tự set */
+}
+
+.swipe-delete-bg {
+  position: absolute;
+  inset: 0;
+  background: var(--danger);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: center;
+  padding-right: 20px;
+  gap: 3px;
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  user-select: none;
+}
+
+.swipe-row-content {
+  position: relative;
+  background: var(--surface); /* luôn đè lên nền đỏ */
+  z-index: 1;
+  will-change: transform; /* GPU hint */
 }
 
 /* ──────────────────────────────────────────────

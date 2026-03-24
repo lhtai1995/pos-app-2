@@ -3,8 +3,9 @@ import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid,
   ResponsiveContainer, BarChart, Bar,
 } from 'recharts';
-import { RefreshCw, TrendingUp, TrendingDown, Trash2 } from 'lucide-react';
-import { formatPrice, dateKey } from '../utils';
+import { RefreshCw, TrendingUp, TrendingDown } from 'lucide-react';
+import { formatPrice } from '../utils';
+import SwipeToDelete from '../components/SwipeToDelete';
 
 const getPeriodRange = (period) => {
   const now = new Date();
@@ -212,24 +213,23 @@ export default function ReportTab({
                 <h3>Giao dịch ({periodOrders.length})</h3>
                 {periodOrders.length === 0 ? <p className="empty-state">Chưa có giao dịch nào</p> : (
                   periodOrders.map(order => (
-                    <div key={order.id} className="transaction-card">
-                      <div className="tx-header">
-                        <span className="tx-time">{new Date(order.timestamp).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}</span>
-                        <div className="tx-header-right">
+                    <SwipeToDelete key={order.id} onDelete={() => deleteOrder(order)}>
+                      <div className="transaction-card">
+                        <div className="tx-header">
+                          <span className="tx-time">{new Date(order.timestamp).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}</span>
                           <span className="tx-total">{formatPrice(order.total)}</span>
-                          <button className="tx-delete-btn" onClick={() => deleteOrder(order)}><Trash2 size={14} /></button>
+                        </div>
+                        <div className="tx-items">
+                          {order.items?.map((item, idx) => (
+                            <div key={idx} className="tx-item">
+                              <span>{item.name}</span>
+                              {item.toppings?.length > 0 && <span className="tx-toppings">+ {item.toppings.map(t => t.name).join(', ')}</span>}
+                              <span className="tx-item-price">{formatPrice(item.totalPrice)}</span>
+                            </div>
+                          ))}
                         </div>
                       </div>
-                      <div className="tx-items">
-                        {order.items?.map((item, idx) => (
-                          <div key={idx} className="tx-item">
-                            <span>{item.name}</span>
-                            {item.toppings?.length > 0 && <span className="tx-toppings">+ {item.toppings.map(t => t.name).join(', ')}</span>}
-                            <span className="tx-item-price">{formatPrice(item.totalPrice)}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
+                    </SwipeToDelete>
                   ))
                 )}
               </div>
