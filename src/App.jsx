@@ -93,6 +93,7 @@ export default function App() {
   const [expandedGroups, setExpandedGroups] = useState({});
   const [form, setForm] = useState({ category: '', name: '', price: '', applicableToppingGroups: [] });
   const [groupForm, setGroupForm] = useState({ name: '' });
+  const [toppingForm, setToppingForm] = useState({ name: '', price: '' });
   // ── Animation refs ──
   // Removed refs
 
