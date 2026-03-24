@@ -8,7 +8,8 @@ import {
   BarChart3, Home, Settings, Plus, X, Check,
   Wifi, WifiOff,
 } from 'lucide-react';
-import { gsap } from 'gsap';
+
+import { motion, AnimatePresence } from 'framer-motion';
 
 // ── Tabs ──
 import OrderTab from './tabs/OrderTab';
@@ -92,13 +93,8 @@ export default function App() {
   const [expandedGroups, setExpandedGroups] = useState({});
   const [form, setForm] = useState({ category: '', name: '', price: '', applicableToppingGroups: [] });
   const [groupForm, setGroupForm] = useState({ name: '' });
-  const [toppingForm, setToppingForm] = useState({ name: '', price: '' });
-
   // ── Animation refs ──
-  const sheetRef = useRef(null);
-  const sheetOverlayRef = useRef(null);
-  const toastRef = useRef(null);
-  const mainContentRef = useRef(null);
+  // Removed refs
 
   // ──────────────────────────────────────────────
   // FIREBASE LISTENERS
@@ -173,30 +169,10 @@ export default function App() {
   const currentOrderTotal = currentOrder.reduce((s, i) => s + i.totalPrice, 0);
 
   // ──────────────────────────────────────────────
-  // GSAP ANIMATIONS
+  // TABS LOGIC
   // ──────────────────────────────────────────────
-  useEffect(() => {
-    if (showToppingSheet && sheetRef.current) {
-      gsap.set(sheetRef.current, { y: '100%' });
-      gsap.set(sheetOverlayRef.current, { opacity: 0 });
-      gsap.to(sheetOverlayRef.current, { opacity: 1, duration: 0.2, ease: 'power2.out' });
-      gsap.to(sheetRef.current, { y: '0%', duration: 0.38, ease: 'power3.out' });
-    }
-  }, [showToppingSheet]);
-
-  useEffect(() => {
-    if (mainContentRef.current) {
-      gsap.fromTo(mainContentRef.current, { opacity: 0, y: 10 }, { opacity: 1, y: 0, duration: 0.25, ease: 'power2.out' });
-    }
-  }, [activeTab]);
-
   const closeSheet = useCallback(() => {
-    if (sheetRef.current) {
-      gsap.to(sheetOverlayRef.current, { opacity: 0, duration: 0.2 });
-      gsap.to(sheetRef.current, { y: '100%', duration: 0.3, ease: 'power3.in', onComplete: () => setShowToppingSheet(false) });
-    } else {
-      setShowToppingSheet(false);
-    }
+    setShowToppingSheet(false);
   }, []);
 
   // ──────────────────────────────────────────────
@@ -250,11 +226,6 @@ export default function App() {
   const showToast = useCallback((message, onUndo) => {
     setToast({ message, onUndo });
     setTimeout(() => setToast(null), 4000);
-    requestAnimationFrame(() => {
-      if (toastRef.current) {
-        gsap.fromTo(toastRef.current, { y: 80, opacity: 0 }, { y: 0, opacity: 1, duration: 0.35, ease: 'back.out(1.5)' });
-      }
-    });
   }, []);
 
   const deleteOrder = (order) => {
@@ -495,9 +466,17 @@ export default function App() {
 
   return (
     <div className="app-container">
-      <main ref={mainContentRef} className="main-content">
-        {activeTab === 'order' && (
-          <OrderTab
+      <AnimatePresence mode="wait">
+        <motion.main 
+          key={activeTab}
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, scale: 0.98 }}
+          transition={{ duration: 0.2 }}
+          className="main-content"
+        >
+          {activeTab === 'order' && (
+            <OrderTab
             isLoading={isLoading}
             searchQuery={searchQuery} setSearchQuery={setSearchQuery}
             displayItems={displayItems} hasMonthlyData={hasMonthlyData} monthlyItemStats={monthlyItemStats}
@@ -506,7 +485,6 @@ export default function App() {
             selectedItemToAdd={selectedItemToAdd} selectedToppings={selectedToppings}
             toggleTopping={toggleTopping} confirmAddItem={confirmAddItem}
             toppingGroups={toppingGroups} toppings={toppings}
-            sheetRef={sheetRef} sheetOverlayRef={sheetOverlayRef}
             statusBadge={StatusBadge}
           />
         )}
@@ -531,7 +509,8 @@ export default function App() {
             showConfirm={showConfirm}
           />
         )}
-      </main>
+        </motion.main>
+      </AnimatePresence>
 
       <nav className="bottom-nav">
         <button className={`nav-item ${activeTab === 'order' ? 'active' : ''}`} onClick={() => setActiveTab('order')}><Home size={24} /><span>Bán hàng</span></button>
@@ -540,12 +519,27 @@ export default function App() {
       </nav>
 
       {/* Toast */}
-      {toast && (
-        <div ref={toastRef} className="toast">
-          <span>{toast.message}</span>
-          <button className="toast-undo" onClick={toast.onUndo}>Hoàn tác</button>
-        </div>
-      )}
+      <AnimatePresence>
+        {toast && (
+          <motion.div 
+            className="fixed bottom-[calc(72px+env(safe-area-inset-bottom))] left-1/2 flex items-center gap-3 bg-gray-800 text-white py-3 px-4 rounded-xl text-[0.88rem] font-medium shadow-[0_4px_20px_rgba(0,0,0,0.25)] z-[9999] whitespace-nowrap"
+            initial={{ opacity: 0, x: "-50%", y: 40 }}
+            animate={{ opacity: 1, x: "-50%", y: 0 }}
+            exit={{ opacity: 0, x: "-50%", y: 20 }}
+            transition={{ type: "spring", stiffness: 300, damping: 25 }}
+          >
+            <span>{toast.message}</span>
+            {toast.onUndo && (
+              <button 
+                className="bg-transparent border-none text-blue-400 font-bold underline cursor-pointer p-0 hover:text-blue-300 transition-colors" 
+                onClick={toast.onUndo}
+              >
+                Hoàn tác
+              </button>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Current Order Bar */}
       {activeTab === 'order' && currentOrder.length > 0 && (
