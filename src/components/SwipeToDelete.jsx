@@ -1,137 +1,129 @@
-import React, { useRef, useState, useEffect, useCallback } from 'react';
+import React, { useRef, useEffect, useCallback } from 'react';
 import { Trash2 } from 'lucide-react';
 
-const REVEAL_X  = 76;  // px để lộ nút xóa
-const DELETE_X  = 210; // px để auto-delete khi quẹt mạnh
+const REVEAL = 76;  // px hiện nút xóa
+const MAX_DX = 240; // px để auto-delete khi quẹt mạnh
 
-export default function SwipeToDelete({ onDelete, children, className = '' }) {
-  const wrapperRef  = useRef(null);
-  const startX      = useRef(0);
-  const startY      = useRef(0);
-  const baseOffset  = useRef(0);        // offset tại thời điểm touchstart
-  const isScrolling = useRef(null);     // null | true | false
-  const revealed    = useRef(false);
+export default function SwipeToDelete({ onDelete, children }) {
+  const wrapRef    = useRef(null);
+  const contentRef = useRef(null);
+  const bgRef      = useRef(null);
+  const onDeleteR  = useRef(onDelete);
 
-  const [offset,    setOffset]    = useState(0);
-  const [animating, setAnimating] = useState(true);
+  // Touch tracking refs — không dùng state để không trigger re-render
+  const startX   = useRef(0);
+  const startY   = useRef(0);
+  const baseX    = useRef(0);   // offset tại lúc touchstart
+  const liveX    = useRef(0);   // offset hiện tại trong lúc kéo
+  const revealed = useRef(false);
+  const isScroll = useRef(null); // null → chưa biết | true → scroll | false → swipe
 
-  // Snap to position với animation
-  const snapTo = useCallback((x, cb) => {
-    setAnimating(true);
-    setOffset(x);
-    revealed.current = x < -4;
-    if (cb) setTimeout(cb, 260);
+  // Luôn giữ ref onDelete mới nhất (tránh stale closure)
+  useEffect(() => { onDeleteR.current = onDelete; });
+
+  // Cập nhật DOM trực tiếp — không qua React state → 60fps
+  const setTransform = useCallback((x, animate = false) => {
+    const c = contentRef.current;
+    const b = bgRef.current;
+    if (!c) return;
+    c.style.transition = animate ? 'transform 0.28s cubic-bezier(0.16,1,0.3,1)' : 'none';
+    c.style.transform  = `translateX(${x}px)`;
+    if (b) b.style.opacity = String(Math.min(1, Math.abs(x) / REVEAL));
   }, []);
 
-  useEffect(() => {
-    const el = wrapperRef.current;
-    if (!el) return;
+  const snapTo = useCallback((x, cb) => {
+    setTransform(x, true);
+    revealed.current = x < -4;
+    liveX.current = x;
+    if (cb) setTimeout(cb, 280);
+  }, [setTransform]);
 
-    const onTouchStart = (e) => {
-      startX.current    = e.touches[0].clientX;
-      startY.current    = e.touches[0].clientY;
-      baseOffset.current = revealed.current ? -REVEAL_X : 0;
-      isScrolling.current = null;
-      setAnimating(false);
+  const triggerDelete = useCallback(() => {
+    snapTo(-window.innerWidth, () => {
+      onDeleteR.current?.();
+      setTransform(0, false);
+      liveX.current = 0;
+      revealed.current = false;
+    });
+  }, [snapTo, setTransform]);
+
+  useEffect(() => {
+    const wrap = wrapRef.current;
+    if (!wrap) return;
+
+    const onStart = (e) => {
+      if (e.touches.length !== 1) return;
+      startX.current   = e.touches[0].clientX;
+      startY.current   = e.touches[0].clientY;
+      baseX.current    = liveX.current;
+      isScroll.current = null;
+      const c = contentRef.current;
+      if (c) c.style.transition = 'none'; // tắt animation trong lúc kéo
     };
 
-    const onTouchMove = (e) => {
+    const onMove = (e) => {
       const dx = e.touches[0].clientX - startX.current;
       const dy = e.touches[0].clientY - startY.current;
 
-      // Nhận diện chiều scroll lần đầu
-      if (isScrolling.current === null) {
-        isScrolling.current = Math.abs(dy) > Math.abs(dx) + 4;
+      // Chỉ xác định chiều 1 lần duy nhất
+      if (isScroll.current === null) {
+        isScroll.current = Math.abs(dy) > Math.abs(dx) + 3;
+        if (isScroll.current) return;
       }
-      if (isScrolling.current) return;
+      if (isScroll.current) return;
 
-      e.preventDefault(); // chặn vertical scroll khi đang swipe ngang
+      e.preventDefault(); // chặn page scroll khi đang swipe ngang
 
-      let raw   = baseOffset.current + dx;
-      // Rubber-band: giới hạn swipe phải (> 0) và trái (< -DELETE_X)
-      if (raw > 0) raw = Math.min(12, raw * 0.15);
-      if (raw < -DELETE_X) raw = -DELETE_X;
-      setOffset(raw);
+      let x = baseX.current + dx;
+      if (x > 0)       x = 0;       // không cho swipe phải
+      if (x < -MAX_DX) x = -MAX_DX; // giới hạn swipe trái
+
+      liveX.current = x;
+      setTransform(x); // cập nhật DOM trực tiếp — không re-render
     };
 
-    const onTouchEnd = (e) => {
-      if (isScrolling.current) return;
-      const x = parseFloat(wrapperRef.current?.style.transform?.replace(/[^-\d.]/g, '') || '0') || offset;
+    const onEnd = () => {
+      if (isScroll.current) return;
+      const x = liveX.current;
 
-      // Lấy offset thực qua ref thay vì state (stale closure)
-      const el  = e.currentTarget;
-      const raw = parseFloat(el.querySelector('.swipe-row-content')?.style.transform?.replace('translateX(', '') || '0');
-
-      if (raw < -(DELETE_X * 0.55)) {
-        // Full swipe → delete ngay
-        snapTo(-window.innerWidth, () => {
-          onDelete();
-          setOffset(0);
-          setAnimating(false);
-          revealed.current = false;
-        });
-      } else if (raw < -(REVEAL_X * 0.35)) {
-        snapTo(-REVEAL_X); // reveal nút xóa
+      if (x < -(MAX_DX * 0.5)) {
+        triggerDelete();                  // quẹt đủ mạnh → xóa
+      } else if (x < -(REVEAL * 0.28)) {
+        snapTo(-REVEAL);                  // quẹt vừa → lộ nút
       } else {
-        snapTo(0); // reset
+        snapTo(0);                        // quẹt ít → reset
       }
     };
 
-    el.addEventListener('touchstart', onTouchStart, { passive: true  });
-    el.addEventListener('touchmove',  onTouchMove,  { passive: false });
-    el.addEventListener('touchend',   onTouchEnd,   { passive: true  });
+    wrap.addEventListener('touchstart', onStart,  { passive: true  });
+    wrap.addEventListener('touchmove',  onMove,   { passive: false });
+    wrap.addEventListener('touchend',   onEnd,    { passive: true  });
+    wrap.addEventListener('touchcancel',() => snapTo(0), { passive: true });
 
     return () => {
-      el.removeEventListener('touchstart', onTouchStart);
-      el.removeEventListener('touchmove',  onTouchMove);
-      el.removeEventListener('touchend',   onTouchEnd);
+      wrap.removeEventListener('touchstart', onStart);
+      wrap.removeEventListener('touchmove',  onMove);
+      wrap.removeEventListener('touchend',   onEnd);
+      wrap.removeEventListener('touchcancel',() => snapTo(0));
     };
-  }, [onDelete, snapTo]);
-
-  // Đọc offset thực từ style để tránh stale closure trong touchend
-  // (dùng state bình thường cho rendering, ref cho event handlers)
-  useEffect(() => {
-    const content = wrapperRef.current?.querySelector('.swipe-row-content');
-    if (content) {
-      content.style.transform  = `translateX(${offset}px)`;
-      content.style.transition = animating ? 'transform 0.26s cubic-bezier(0.16,1,0.3,1)' : 'none';
-    }
-  }, [offset, animating]);
-
-  const handleDeleteTap = (e) => {
-    e.stopPropagation();
-    snapTo(-window.innerWidth, () => {
-      onDelete();
-      setOffset(0);
-      setAnimating(false);
-      revealed.current = false;
-    });
-  };
-
-  const handleWrapperClick = () => {
-    if (revealed.current) snapTo(0);
-  };
-
-  const bgOpacity = Math.min(1, Math.abs(offset) / REVEAL_X);
+  }, [setTransform, snapTo, triggerDelete]);
 
   return (
     <div
-      ref={wrapperRef}
-      className={`swipe-row-wrapper ${className}`}
-      onClick={handleWrapperClick}
+      ref={wrapRef}
+      className="swipe-row-wrapper"
+      onClick={() => { if (revealed.current) snapTo(0); }}
     >
-      {/* Nền đỏ bên phải */}
       <div
+        ref={bgRef}
         className="swipe-delete-bg"
-        style={{ opacity: bgOpacity }}
-        onClick={handleDeleteTap}
+        style={{ opacity: 0 }}
+        onClick={(e) => { e.stopPropagation(); triggerDelete(); }}
       >
         <Trash2 size={17} />
         <span>Xóa</span>
       </div>
-
-      {/* Content chính */}
-      <div className="swipe-row-content">
+      <div ref={contentRef} className="swipe-row-content">
         {children}
       </div>
     </div>

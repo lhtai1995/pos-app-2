@@ -244,25 +244,28 @@ export default function App() {
     await set(newRef, newOrder);
   };
 
+  // ──────────────────────────────────────────────
+  // TOAST HELPER
+  // ──────────────────────────────────────────────
+  const showToast = useCallback((message, onUndo) => {
+    setToast({ message, onUndo });
+    setTimeout(() => setToast(null), 4000);
+    requestAnimationFrame(() => {
+      if (toastRef.current) {
+        gsap.fromTo(toastRef.current, { y: 80, opacity: 0 }, { y: 0, opacity: 1, duration: 0.35, ease: 'back.out(1.5)' });
+      }
+    });
+  }, []);
+
   const deleteOrder = (order) => {
     const dk = order.dateKey || dateKey(new Date(order.timestamp));
     setPeriodOrders(prev => prev.filter(o => o.id !== order.id));
     invalidateReportCache();
     let undone = false;
     const timer = setTimeout(() => { if (!undone) remove(ref(db, `orders/${dk}/${order.id}`)); }, 4000);
-    setToast({
-      message: 'Đã xóa giao dịch',
-      onUndo: () => {
-        undone = true; clearTimeout(timer);
-        setPeriodOrders(prev => [order, ...prev].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp)));
-        setToast(null);
-      },
-    });
-    setTimeout(() => setToast(null), 4000);
-    requestAnimationFrame(() => {
-      if (toastRef.current) {
-        gsap.fromTo(toastRef.current, { y: 80, opacity: 0 }, { y: 0, opacity: 1, duration: 0.35, ease: 'back.out(1.5)' });
-      }
+    showToast('Đã xóa giao dịch', () => {
+      undone = true; clearTimeout(timer);
+      setPeriodOrders(prev => [order, ...prev].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp)));
     });
   };
 
@@ -278,7 +281,15 @@ export default function App() {
     setEditingItem(null); setMenuView('list');
   };
 
-  const deleteMenuItem = async (id) => { await remove(ref(db, `menu/${id}`)); };
+  const deleteMenuItem = (item) => {
+    remove(ref(db, `menu/${item.id}`));
+    showToast(`Đã xóa "${item.name}"`, () => {
+      set(ref(db, `menu/${item.id}`), {
+        category: item.category, name: item.name,
+        price: item.price, applicableToppingGroups: item.applicableToppingGroups || []
+      });
+    });
+  };
 
   const startEditItem = (item) => {
     setEditingItem(item);
@@ -296,7 +307,13 @@ export default function App() {
     setGroupForm({ name: '' }); setEditingItem(null); setMenuView('list');
   };
 
-  const deleteGroup = async (groupId) => { await remove(ref(db, `toppingGroups/${groupId}`)); };
+  const deleteGroup = (group) => {
+    remove(ref(db, `toppingGroups/${group.id}`));
+    showToast(`Đã xóa nhóm "${group.name}"`, () => {
+      const itemsObj = (group.items || []).reduce((acc, id) => ({ ...acc, [id]: true }), {});
+      set(ref(db, `toppingGroups/${group.id}`), { name: group.name, items: itemsObj });
+    });
+  };
 
   const saveTopping = async () => {
     if (!toppingForm.name.trim() || !toppingForm.price) return;
@@ -306,7 +323,12 @@ export default function App() {
     setToppingForm({ name: '', price: '' }); setEditingItem(null); setMenuView('list');
   };
 
-  const deleteTopping = async (id) => { await remove(ref(db, `toppings/${id}`)); };
+  const deleteTopping = (t) => {
+    remove(ref(db, `toppings/${t.id}`));
+    showToast(`Đã xóa topping "${t.name}"`, () => {
+      set(ref(db, `toppings/${t.id}`), { name: t.name, price: t.price });
+    });
+  };
 
   const toggleToppingForGroup = async (groupId, toppingId, isActive) => {
     if (isActive) await remove(ref(db, `toppingGroups/${groupId}/items/${toppingId}`));

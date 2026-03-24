@@ -15,7 +15,6 @@ export default function MenuTab({
   saveTopping, deleteTopping,
   toggleToppingForGroup,
   setGroupForm, setToppingForm,
-  showConfirm,
 }) {
   return (
     <div className="menu-mgmt-tab">
@@ -36,7 +35,7 @@ export default function MenuTab({
                 <span className="mgmt-cat-count">{menuItems.filter(i => i.category === cat).length} món</span>
               </div>
               {menuItems.filter(i => i.category === cat).map(item => (
-                <SwipeToDelete key={item.id} onDelete={() => deleteMenuItem(item.id)}>
+                <SwipeToDelete key={item.id} onDelete={() => deleteMenuItem(item)}>
                   <div className="mgmt-item">
                     <div className="mgmt-item-info">
                       <p className="mgmt-item-name">{item.name}</p>
@@ -64,7 +63,7 @@ export default function MenuTab({
           {toppings.length === 0 && <p className="empty-state">Chưa có topping lẻ nào.</p>}
           <div className="mgmt-category">
             {toppings.map(t => (
-              <SwipeToDelete key={t.id} onDelete={() => showConfirm(`Xoá topping "${t.name}"?`, 'Hành động này không thể hoàn tác.', () => deleteTopping(t.id))}>
+              <SwipeToDelete key={t.id} onDelete={() => deleteTopping(t)}>
                 <div className="mgmt-item">
                   <div className="mgmt-item-info">
                     <p className="mgmt-item-name">{t.name}</p>
@@ -85,7 +84,7 @@ export default function MenuTab({
           <button className="add-new-btn" onClick={() => setMenuView('addGroup')}><FolderPlus size={18} /> Thêm nhóm topping</button>
           {toppingGroups.length === 0 && <p className="empty-state">Chưa có nhóm topping nào.</p>}
           {toppingGroups.map(group => (
-            <SwipeToDelete key={group.id} onDelete={() => showConfirm(`Xoá nhóm "${group.name}"?`, 'Topping lẻ không bị xoá, chỉ nhóm bị xoá.', () => deleteGroup(group.id))}>
+            <SwipeToDelete key={group.id} onDelete={() => deleteGroup(group)}>
               <div className="topping-group-card">
                 <div className="topping-group-header">
                   <button className="group-toggle" onClick={() => setExpandedGroups(p => ({ ...p, [group.id]: !p[group.id] }))}>
