@@ -2,7 +2,7 @@ import React, { useRef, useEffect, useCallback } from 'react';
 import { Trash2 } from 'lucide-react';
 
 const REVEAL = 76;  // px hiện nút xóa
-const MAX_DX = 240; // px để auto-delete khi quẹt mạnh
+const MAX_DX = 100; // giới hạn kéo (chỉ cần hé ra nút, không cần kéo mãi)
 
 export default function SwipeToDelete({ onDelete, children }) {
   const wrapRef    = useRef(null);
@@ -86,10 +86,9 @@ export default function SwipeToDelete({ onDelete, children }) {
       if (isScroll.current) return;
       const x = liveX.current;
 
-      if (x < -(MAX_DX * 0.5)) {
-        triggerDelete();                  // quẹt đủ mạnh → xóa
-      } else if (x < -(REVEAL * 0.28)) {
-        snapTo(-REVEAL);                  // quẹt vừa → lộ nút
+      // Không có auto-delete — user phải tap nút Xóa (an toàn hơn)
+      if (x < -(REVEAL * 0.5)) {
+        snapTo(-REVEAL);                  // quẹt đủ ½ REVEAL (~38px) → lộ nút
       } else {
         snapTo(0);                        // quẹt ít → reset
       }
