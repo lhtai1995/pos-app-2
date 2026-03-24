@@ -6,14 +6,18 @@ import {
 import { db } from './firebase';
 import {
   BarChart3, Home, Settings, Plus, X, Check,
-  Wifi, WifiOff,
+  Wifi, WifiOff, Clock, LogOut,
 } from 'lucide-react';
 import { gsap } from 'gsap';
+
+// ── Screens ──
+import LoginScreen from './screens/LoginScreen';
 
 // ── Tabs ──
 import OrderTab from './tabs/OrderTab';
 import ReportTab from './tabs/ReportTab';
 import MenuTab from './tabs/MenuTab';
+import StaffHistoryTab from './tabs/StaffHistoryTab';
 
 // ── Components ──
 import ConfirmDialog from './components/ConfirmDialog';
@@ -46,11 +50,31 @@ const invalidateReportCache = () => localStorage.removeItem(SK.REPORT);
 // APP
 // ──────────────────────────────────────────────
 export default function App() {
+  // ── Role & Authentication ──
+  const [userRole, setUserRole] = useState(
+    () => sessionStorage.getItem('dol_role') || null
+  );
+
+  const handleLogin = (role) => {
+    setUserRole(role);
+    sessionStorage.setItem('dol_role', role);
+    // Admin mặc định vào tab order, staff cũng thế
+    setActiveTab('order');
+  };
+
+  const handleLogout = () => {
+    setUserRole(null);
+    sessionStorage.removeItem('dol_role');
+    setCurrentOrder([]);
+    setActiveTab('order');
+  };
+
   // ── Core state ──
   const [activeTab, setActiveTab] = useState('order');
   const [menuItems, setMenuItems] = useState([]);
   const [toppingGroups, setToppingGroups] = useState([]);
   const [toppings, setToppings] = useState([]);
+  const [todayOrders, setTodayOrders] = useState(() => fromStorage(SK.ORDERS) || []);
   const [isLoading, setIsLoading] = useState(true);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
 
@@ -121,8 +145,9 @@ export default function App() {
 
     const todayKey = dateKey();
     const unsubOrders = onValue(ref(db, `orders/${todayKey}`), snap => {
-      const todayOrders = parseDayOrders(snap, todayKey);
-      toStorage(SK.ORDERS, todayOrders);
+      const orders = parseDayOrders(snap, todayKey);
+      setTodayOrders(orders);
+      toStorage(SK.ORDERS, orders);
       setIsLoading(false);
     });
 
@@ -466,9 +491,15 @@ export default function App() {
   // ──────────────────────────────────────────────
   // ROOT RENDER
   // ──────────────────────────────────────────────
+
+  // Login gate
+  if (!userRole) return <LoginScreen onLogin={handleLogin} />;
+
   const StatusBadge = isOnline
     ? <span className="cloud-badge ok"><Wifi size={12} /> Online</span>
     : <span className="cloud-badge error"><WifiOff size={12} /> Offline</span>;
+
+  const isAdmin = userRole === 'admin';
 
   return (
     <div className="app-container">
@@ -485,16 +516,20 @@ export default function App() {
             toppingGroups={toppingGroups} toppings={toppings}
             sheetRef={sheetRef} sheetOverlayRef={sheetOverlayRef}
             statusBadge={StatusBadge}
+            userRole={userRole} onLogout={handleLogout}
           />
         )}
-        {activeTab === 'report' && (
+        {activeTab === 'history' && (
+          <StaffHistoryTab todayOrders={todayOrders} />
+        )}
+        {activeTab === 'report' && isAdmin && (
           <ReportTab
             reportPeriod={reportPeriod} setReportPeriod={setReportPeriod}
             cachedReport={cachedReport} periodOrders={periodOrders} isLoadingPeriod={isLoadingPeriod}
             fetchPeriodData={fetchPeriodData} deleteOrder={deleteOrder}
           />
         )}
-        {activeTab === 'menu' && (
+        {activeTab === 'menu' && isAdmin && (
           <MenuTab
             menuItems={menuItems} toppingGroups={toppingGroups} toppings={toppings} categories={categories}
             menuTab={menuTab} setMenuTab={setMenuTab}
@@ -510,10 +545,31 @@ export default function App() {
         )}
       </main>
 
+      {/* Bottom Nav — khác nhau theo role */}
       <nav className="bottom-nav">
-        <button className={`nav-item ${activeTab === 'order' ? 'active' : ''}`} onClick={() => setActiveTab('order')}><Home size={24} /><span>Bán hàng</span></button>
-        <button className={`nav-item ${activeTab === 'report' ? 'active' : ''}`} onClick={() => setActiveTab('report')}><BarChart3 size={24} /><span>Báo cáo</span></button>
-        <button className={`nav-item ${activeTab === 'menu' ? 'active' : ''}`} onClick={() => setActiveTab('menu')}><Settings size={24} /><span>Menu</span></button>
+        <button className={`nav-item ${activeTab === 'order' ? 'active' : ''}`} onClick={() => setActiveTab('order')}>
+          <Home size={24} /><span>Bán hàng</span>
+        </button>
+
+        {isAdmin ? (
+          <>
+            <button className={`nav-item ${activeTab === 'report' ? 'active' : ''}`} onClick={() => setActiveTab('report')}>
+              <BarChart3 size={24} /><span>Báo cáo</span>
+            </button>
+            <button className={`nav-item ${activeTab === 'menu' ? 'active' : ''}`} onClick={() => setActiveTab('menu')}>
+              <Settings size={24} /><span>Menu</span>
+            </button>
+          </>
+        ) : (
+          <>
+            <button className={`nav-item ${activeTab === 'history' ? 'active' : ''}`} onClick={() => setActiveTab('history')}>
+              <Clock size={24} /><span>Lịch sử</span>
+            </button>
+            <button className="nav-item nav-logout" onClick={handleLogout}>
+              <LogOut size={24} /><span>Đổi ca</span>
+            </button>
+          </>
+        )}
       </nav>
 
       {/* Toast */}
@@ -559,3 +615,4 @@ export default function App() {
     </div>
   );
 }
+
