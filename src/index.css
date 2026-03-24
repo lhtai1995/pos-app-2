@@ -804,8 +804,8 @@ body {
   background: var(--surface);
   padding: 14px 16px;
   border-radius: var(--radius-md);
-  margin-bottom: 10px;
   box-shadow: var(--shadow-sm);
+  /* margin-bottom đã chuyển ra .swipe-row-wrapper */
 }
 
 .tx-header {
@@ -959,8 +959,8 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 8px;
   box-shadow: var(--shadow-sm);
+  /* margin-bottom đã chuyển ra .swipe-row-wrapper */
 }
 
 .mgmt-item-info {
@@ -1443,8 +1443,8 @@ body {
   background: var(--surface);
   border: 1.5px solid var(--border);
   border-radius: var(--radius-md);
-  margin-bottom: 10px;
-  overflow: hidden;
+  /* margin-bottom đã chuyển ra .swipe-row-wrapper */
+  overflow: hidden; /* giữ để clip group-topping-list bên trong */
 }
 
 .topping-group-header {
@@ -1695,8 +1695,13 @@ select.form-input {
 ────────────────────────────────────────────── */
 .swipe-row-wrapper {
   position: relative;
-  overflow: hidden;
-  /* Không đặt border-radius ở đây — để child tự set */
+  overflow: hidden;           /* clip content khi swipe */
+  border-radius: var(--radius-md); /* khớp với card bên trong */
+  margin-bottom: 9px;         /* thay margin-bottom trên card */
+}
+
+.swipe-row-wrapper:last-child {
+  margin-bottom: 0;
 }
 
 .swipe-delete-bg {
@@ -1707,7 +1712,7 @@ select.form-input {
   flex-direction: column;
   align-items: flex-end;
   justify-content: center;
-  padding-right: 20px;
+  padding-right: 22px;
   gap: 3px;
   color: #fff;
   font-size: 0.72rem;
@@ -1715,14 +1720,18 @@ select.form-input {
   letter-spacing: 0.02em;
   cursor: pointer;
   user-select: none;
+  border-radius: var(--radius-md); /* khớp với wrapper */
 }
 
 .swipe-row-content {
   position: relative;
-  background: var(--surface); /* luôn đè lên nền đỏ */
   z-index: 1;
-  will-change: transform; /* GPU hint */
+  will-change: transform;
+  /* KHÔNG set background ở đây — để child card tự set */
+  /* KHÔNG set border-radius — overflow:hidden trên wrapper đã clip */
 }
+
+
 
 /* ──────────────────────────────────────────────
    CONFIRM DIALOG
