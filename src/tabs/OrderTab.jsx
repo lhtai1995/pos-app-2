@@ -9,6 +9,7 @@ export default function OrderTab({
   handleAddItem,
   showToppingSheet, closeSheet, selectedItemToAdd, selectedToppings,
   toggleTopping, confirmAddItem, toppingGroups, toppings,
+  sheetRef, sheetOverlayRef,
   statusBadge,
 }) {
   return (
