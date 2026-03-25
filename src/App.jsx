@@ -6,18 +6,14 @@ import {
 import { db } from './firebase';
 import {
   BarChart3, Home, Settings, Plus, X, Check,
-  Wifi, WifiOff, Clock, LogOut
+  Wifi, WifiOff,
 } from 'lucide-react';
 import { gsap } from 'gsap';
-
-// ── Screens ──
-import LoginScreen from './screens/LoginScreen';
 
 // ── Tabs ──
 import OrderTab from './tabs/OrderTab';
 import ReportTab from './tabs/ReportTab';
 import MenuTab from './tabs/MenuTab';
-import StaffHistoryTab from './tabs/StaffHistoryTab';
 
 // ── Components ──
 import ConfirmDialog from './components/ConfirmDialog';
@@ -53,26 +49,11 @@ const invalidateReportCache = () => localStorage.removeItem(SK.REPORT);
 export default function App() {
   // ── Core state ──
   const [activeTab, setActiveTab] = useState('order');
-  const [userRole, setUserRole] = useState(() => sessionStorage.getItem('dol_role') || null);
   const [menuItems, setMenuItems] = useState([]);
   const [toppingGroups, setToppingGroups] = useState([]);
   const [toppings, setToppings] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
-  const [todayOrders, setTodayOrders] = useState(() => fromStorage(SK.ORDERS) || []);
-
-  const handleLogin = (role) => {
-    setUserRole(role);
-    sessionStorage.setItem('dol_role', role);
-    setActiveTab('order');
-  };
-
-  const handleLogout = () => {
-    setUserRole(null);
-    sessionStorage.removeItem('dol_role');
-    setCurrentOrder([]);
-    setActiveTab('order');
-  };
 
   // ── Order states ──
   const [currentOrder, setCurrentOrder] = useState([]);
@@ -141,9 +122,8 @@ export default function App() {
 
     const todayKey = dateKey();
     const unsubOrders = onValue(ref(db, `orders/${todayKey}`), snap => {
-      const ordersT = parseDayOrders(snap, todayKey);
-      setTodayOrders(ordersT);
-      toStorage(SK.ORDERS, ordersT);
+      const todayOrders = parseDayOrders(snap, todayKey);
+      toStorage(SK.ORDERS, todayOrders);
       setIsLoading(false);
     });
 
@@ -258,10 +238,19 @@ export default function App() {
       total: currentOrderTotal,
       timestamp: new Date().toISOString(),
     };
+    
+    const backupOrder = [...currentOrder]; // Giữ order cũ đề phòng lỗi
     setCurrentOrder([]);
     invalidateReportCache();
     localStorage.removeItem('dol_top_monthly');
-    await set(newRef, newOrder);
+    
+    try {
+      await set(newRef, newOrder);
+    } catch (e) {
+      console.error('Lỗi khi log món:', e);
+      setCurrentOrder(backupOrder); // Khôi phục nếu lỗi
+      alert('⚠️ Không thể log món!\n\nCó thể do mạng yếu hoặc chưa cấp quyền truy cập Database (vui lòng kiểm tra mục Authentication trong Firebase).');
+    }
   };
 
   // ──────────────────────────────────────────────
@@ -277,16 +266,28 @@ export default function App() {
     });
   }, []);
 
-  const deleteOrder = (order) => {
+  const deleteOrder = async (order) => {
     const dk = order.dateKey || dateKey(new Date(order.timestamp));
     setPeriodOrders(prev => prev.filter(o => o.id !== order.id));
     invalidateReportCache();
     let undone = false;
-    const timer = setTimeout(() => { if (!undone) remove(ref(db, `orders/${dk}/${order.id}`)); }, 4000);
+    
     showToast('Đã xóa giao dịch', () => {
-      undone = true; clearTimeout(timer);
+      undone = true;
       setPeriodOrders(prev => [order, ...prev].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp)));
     });
+
+    setTimeout(async () => {
+      if (!undone) {
+        try {
+          await remove(ref(db, `orders/${dk}/${order.id}`));
+        } catch (e) {
+          console.error('Lỗi xóa giao dịch:', e);
+          alert('⚠️ Không thể xóa giao dịch trên Server (thiếu quyền hoặc lỗi mạng). Hệ thống sẽ tải lại.');
+          fetchPeriodData(reportPeriod, true); // reload data từ server
+        }
+      }
+    }, 4000);
   };
 
   // ──────────────────────────────────────────────
@@ -301,14 +302,18 @@ export default function App() {
     setEditingItem(null); setMenuView('list');
   };
 
-  const deleteMenuItem = (item) => {
-    remove(ref(db, `menu/${item.id}`));
-    showToast(`Đã xóa "${item.name}"`, () => {
-      set(ref(db, `menu/${item.id}`), {
-        category: item.category, name: item.name,
-        price: item.price, applicableToppingGroups: item.applicableToppingGroups || []
+  const deleteMenuItem = async (item) => {
+    try {
+      await remove(ref(db, `menu/${item.id}`));
+      showToast(`Đã xóa "${item.name}"`, () => {
+        set(ref(db, `menu/${item.id}`), {
+          category: item.category, name: item.name,
+          price: item.price, applicableToppingGroups: item.applicableToppingGroups || []
+        });
       });
-    });
+    } catch (e) {
+      alert('⚠️ Xóa thất bại. Thiếu quyền hoặc lỗi mạng!');
+    }
   };
 
   const startEditItem = (item) => {
@@ -327,12 +332,16 @@ export default function App() {
     setGroupForm({ name: '' }); setEditingItem(null); setMenuView('list');
   };
 
-  const deleteGroup = (group) => {
-    remove(ref(db, `toppingGroups/${group.id}`));
-    showToast(`Đã xóa nhóm "${group.name}"`, () => {
-      const itemsObj = (group.items || []).reduce((acc, id) => ({ ...acc, [id]: true }), {});
-      set(ref(db, `toppingGroups/${group.id}`), { name: group.name, items: itemsObj });
-    });
+  const deleteGroup = async (group) => {
+    try {
+      await remove(ref(db, `toppingGroups/${group.id}`));
+      showToast(`Đã xóa nhóm "${group.name}"`, () => {
+        const itemsObj = (group.items || []).reduce((acc, id) => ({ ...acc, [id]: true }), {});
+        set(ref(db, `toppingGroups/${group.id}`), { name: group.name, items: itemsObj });
+      });
+    } catch (e) {
+      alert('⚠️ Xóa thất bại. Thiếu quyền hoặc lỗi mạng!');
+    }
   };
 
   const saveTopping = async () => {
@@ -343,11 +352,15 @@ export default function App() {
     setToppingForm({ name: '', price: '' }); setEditingItem(null); setMenuView('list');
   };
 
-  const deleteTopping = (t) => {
-    remove(ref(db, `toppings/${t.id}`));
-    showToast(`Đã xóa topping "${t.name}"`, () => {
-      set(ref(db, `toppings/${t.id}`), { name: t.name, price: t.price });
-    });
+  const deleteTopping = async (t) => {
+    try {
+      await remove(ref(db, `toppings/${t.id}`));
+      showToast(`Đã xóa topping "${t.name}"`, () => {
+        set(ref(db, `toppings/${t.id}`), { name: t.name, price: t.price });
+      });
+    } catch (e) {
+      alert('⚠️ Xóa thất bại. Thiếu quyền hoặc lỗi mạng!');
+    }
   };
 
   const toggleToppingForGroup = async (groupId, toppingId, isActive) => {
@@ -509,9 +522,6 @@ export default function App() {
   // ──────────────────────────────────────────────
   // ROOT RENDER
   // ──────────────────────────────────────────────
-  if (!userRole) return <LoginScreen onLogin={handleLogin} />;
-  const isAdmin = userRole === 'admin';
-
   const StatusBadge = isOnline
     ? <span className="cloud-badge ok"><Wifi size={12} /> Online</span>
     : <span className="cloud-badge error"><WifiOff size={12} /> Offline</span>;
@@ -533,19 +543,14 @@ export default function App() {
             statusBadge={StatusBadge}
           />
         )}
-        
-        {activeTab === 'history' && (
-          <StaffHistoryTab todayOrders={todayOrders} />
-        )}
-
-        {activeTab === 'report' && isAdmin && (
+        {activeTab === 'report' && (
           <ReportTab
             reportPeriod={reportPeriod} setReportPeriod={setReportPeriod}
             cachedReport={cachedReport} periodOrders={periodOrders} isLoadingPeriod={isLoadingPeriod}
             fetchPeriodData={fetchPeriodData} deleteOrder={deleteOrder}
           />
         )}
-        {activeTab === 'menu' && isAdmin && (
+        {activeTab === 'menu' && (
           <MenuTab
             menuItems={menuItems} toppingGroups={toppingGroups} toppings={toppings} categories={categories}
             menuTab={menuTab} setMenuTab={setMenuTab}
@@ -563,17 +568,8 @@ export default function App() {
 
       <nav className="bottom-nav">
         <button className={`nav-item ${activeTab === 'order' ? 'active' : ''}`} onClick={() => setActiveTab('order')}><Home size={24} /><span>Bán hàng</span></button>
-        {isAdmin ? (
-          <>
-            <button className={`nav-item ${activeTab === 'report' ? 'active' : ''}`} onClick={() => setActiveTab('report')}><BarChart3 size={24} /><span>Báo cáo</span></button>
-            <button className={`nav-item ${activeTab === 'menu' ? 'active' : ''}`} onClick={() => setActiveTab('menu')}><Settings size={24} /><span>Menu</span></button>
-          </>
-        ) : (
-          <>
-            <button className={`nav-item ${activeTab === 'history' ? 'active' : ''}`} onClick={() => setActiveTab('history')}><Clock size={24} /><span>Lịch sử</span></button>
-            <button className="nav-item nav-logout" onClick={handleLogout}><LogOut size={24} /><span>Đổi ca</span></button>
-          </>
-        )}
+        <button className={`nav-item ${activeTab === 'report' ? 'active' : ''}`} onClick={() => setActiveTab('report')}><BarChart3 size={24} /><span>Báo cáo</span></button>
+        <button className={`nav-item ${activeTab === 'menu' ? 'active' : ''}`} onClick={() => setActiveTab('menu')}><Settings size={24} /><span>Menu</span></button>
       </nav>
 
       {/* Toast */}

@@ -82,7 +82,14 @@ export default function SwipeToDelete({ onDelete, children }) {
       setTransform(x); // cập nhật DOM trực tiếp — không re-render
     };
 
-    const onEnd = () => {
+    const onEnd = (e) => {
+      // 1. Nếu tap đúng vào vùng nền đỏ (nút Xóa), trigger xóa ngay lập tức
+      // Khắc phục triệt để lỗi iOS Safari bị mất sự kiện onClick
+      if (revealed.current && bgRef.current && bgRef.current.contains(e.target)) {
+        triggerDelete();
+        return;
+      }
+
       if (isScroll.current) return;
       const x = liveX.current;
 
