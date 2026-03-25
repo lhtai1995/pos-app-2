@@ -1,7 +1,7 @@
 import React from 'react';
 import {
-  AreaChart, Area, XAxis, YAxis, CartesianGrid,
-  ResponsiveContainer, BarChart, Bar,
+  ComposedChart, Area, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer
 } from 'recharts';
 import { RefreshCw, TrendingUp, TrendingDown } from 'lucide-react';
 import { formatPrice } from '../utils';
@@ -130,45 +130,29 @@ export default function ReportTab({
             {chartData.length > 0 && (
               <div className="chart-card">
                 <div className="chart-card-header">
-                  <h3 className="chart-title">Doanh thu theo ngày</h3>
-                  <span className="chart-unit">VNĐ</span>
+                  <h3 className="chart-title">Tương quan Doanh thu & Số ly</h3>
+                  <span className="chart-unit">VNĐ / ly</span>
                 </div>
-                <ResponsiveContainer width="100%" height={200}>
-                  <AreaChart data={chartData} margin={{ top: 6, right: 8, left: -16, bottom: 0 }}>
+                <ResponsiveContainer width="100%" height={260}>
+                  <ComposedChart data={chartData} margin={{ top: 10, right: -10, left: -16, bottom: 0 }}>
                     <defs>
                       <linearGradient id="revenueGradient" x1="0" y1="0" x2="0" y2="1">
                         <stop offset="0%" stopColor="#4F46E5" stopOpacity={0.25} />
                         <stop offset="100%" stopColor="#4F46E5" stopOpacity={0.0} />
                       </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.04)" />
-                    <XAxis dataKey="day" tick={{ fontSize: 11, fill: '#9CA3AF' }} tickLine={false} axisLine={false} />
-                    <YAxis tickFormatter={formatRevTickY} tick={{ fontSize: 11, fill: '#9CA3AF' }} tickLine={false} axisLine={false} />
-                    <Area type="monotone" dataKey="revenue" stroke="#4F46E5" strokeWidth={2.5} fill="url(#revenueGradient)" dot={false} activeDot={false} isAnimationActive={false} />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </div>
-            )}
-
-            {chartData.length > 0 && (
-              <div className="chart-card">
-                <div className="chart-card-header">
-                  <h3 className="chart-title">Số ly bán theo ngày</h3>
-                  <span className="chart-unit">ly</span>
-                </div>
-                <ResponsiveContainer width="100%" height={180}>
-                  <BarChart data={chartData} margin={{ top: 6, right: 8, left: -16, bottom: 0 }} barSize={16}>
-                    <defs>
                       <linearGradient id="countGradient" x1="0" y1="0" x2="0" y2="1">
                         <stop offset="0%" stopColor="#10B981" stopOpacity={1} />
                         <stop offset="100%" stopColor="#10B981" stopOpacity={0.5} />
                       </linearGradient>
                     </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.04)" />
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.04)" vertical={false} />
                     <XAxis dataKey="day" tick={{ fontSize: 11, fill: '#9CA3AF' }} tickLine={false} axisLine={false} />
-                    <YAxis tick={{ fontSize: 11, fill: '#9CA3AF' }} tickLine={false} axisLine={false} />
-                    <Bar dataKey="count" fill="url(#countGradient)" radius={[6, 6, 0, 0]} isAnimationActive={false} />
-                  </BarChart>
+                    <YAxis yAxisId="left" tickFormatter={formatRevTickY} tick={{ fontSize: 11, fill: '#9CA3AF' }} tickLine={false} axisLine={false} />
+                    <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11, fill: '#9CA3AF' }} tickLine={false} axisLine={false} />
+                    <Tooltip cursor={{ fill: 'rgba(0,0,0,0.04)' }} contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }} />
+                    <Area yAxisId="left" type="monotone" dataKey="revenue" name="Doanh thu" stroke="#4F46E5" strokeWidth={2.5} fill="url(#revenueGradient)" dot={false} activeDot={{ r: 4 }} isAnimationActive={false} />
+                    <Bar yAxisId="right" dataKey="count" name="Số ly" fill="url(#countGradient)" barSize={14} radius={[4, 4, 0, 0]} isAnimationActive={false} />
+                  </ComposedChart>
                 </ResponsiveContainer>
               </div>
             )}
