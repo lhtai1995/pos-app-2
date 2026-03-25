@@ -4,7 +4,12 @@ export const formatPrice = (p) =>
 
 export const generateId = () => `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 
-export const dateKey = (d = new Date()) => d.toISOString().split('T')[0];
+export const dateKey = (d = new Date()) => {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
 
 // Parse Firebase snapshots
 export const parseMenu = (snap) => {

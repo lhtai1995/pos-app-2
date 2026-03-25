@@ -51,7 +51,11 @@ export default function ReportTab({
   const byDay       = curr.byDay   ?? {};
 
   const chartData = Object.entries(byDay)
-    .sort((a, b) => a[0].localeCompare(b[0]))
+    .sort((a, b) => {
+      const [d1, m1] = a[0].split('/').map(Number);
+      const [d2, m2] = b[0].split('/').map(Number);
+      return m1 === m2 ? d1 - d2 : m1 - m2;
+    })
     .map(([day, data]) => ({ day, revenue: data.revenue, count: data.count }));
 
   const pct = (c, p) => !p ? (c > 0 ? 100 : 0) : Math.round(((c - p) / p) * 100);
