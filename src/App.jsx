@@ -130,8 +130,16 @@ function MenuFormItem({ logic }) {
       </header>
       <div className="form-body">
         <div className="form-group"><label>Danh mục</label>
-          <input className="form-input" placeholder="VD: Coffee, Trà Trái Cây..." value={form.category} onChange={e => setForm(p => ({ ...p, category: e.target.value }))} list="cat-list" />
-          <datalist id="cat-list">{cats.map(c => <option key={c} value={c} />)}</datalist>
+          <input className="form-input" placeholder="VD: Coffee, Trà Trái Cây..." value={form.category} onChange={e => setForm(p => ({ ...p, category: e.target.value }))} />
+          {cats.length > 0 && (
+            <div className="cat-quick-select">
+              {cats.map(c => (
+                <button key={c} type="button" className={`cat-chip ${form.category === c ? 'active' : ''}`} onClick={() => setForm(p => ({ ...p, category: c }))}>
+                  {c}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
         <div className="form-group"><label>Tên món</label>
           <input className="form-input" placeholder="VD: Matcha Latte - L" value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} />
