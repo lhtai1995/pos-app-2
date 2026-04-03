@@ -3,7 +3,7 @@ import {
   Plus, Edit2, Check, X, FolderPlus, ChevronDown, ChevronUp,
 } from 'lucide-react';
 import { formatPrice } from '../utils';
-import SwipeToDelete from '../components/SwipeToDelete';
+import SwipeToDelete from '../components/common/SwipeToDelete';
 
 // ── Menu List Tab ──
 export default function MenuTab({

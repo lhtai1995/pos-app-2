@@ -5,7 +5,7 @@ import {
 } from 'recharts';
 import { RefreshCw, TrendingUp, TrendingDown } from 'lucide-react';
 import { formatPrice } from '../utils';
-import SwipeToDelete from '../components/SwipeToDelete';
+import SwipeToDelete from '../components/common/SwipeToDelete';
 
 const getPeriodRange = (period) => {
   const now = new Date();

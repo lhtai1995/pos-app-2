@@ -470,6 +470,13 @@ body {
   flex-shrink: 0;
 }
 
+.sheet-sticky-footer .checkout-btn {
+  width: 100%;
+  padding: 14px;
+  font-size: 1.05rem;
+  border-radius: var(--radius-md);
+}
+
 .sheet-preview {
   display: flex;
   flex-wrap: wrap;
